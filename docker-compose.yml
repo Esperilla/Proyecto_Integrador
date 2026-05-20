@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  debian-lab:
+    build: .
+    container_name: proyecto_integrador_env
+    volumes:
+      - .:/workspace
+    tty: true
+    stdin_open: true
+    restart: always
