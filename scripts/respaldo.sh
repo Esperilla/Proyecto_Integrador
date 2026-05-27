@@ -108,3 +108,21 @@ do_backup() {
   echo "Error: el archivo comprimido no se generó correctamente."
   return 1
 }
+
+install_cron() {
+  local script_path cron_line current_cron
+  if ! command -v crontab >/dev/null 2>&1; then
+    echo "crontab no está instalado en este entorno."
+    return 1
+  fi
+
+  script_path="$(realpath "$0")"
+  cron_line="$CRON_SCHEDULE /bin/bash \"$script_path\" --backup-now >> \"$LOG_FILE\" 2>&1"
+
+  current_cron="$(crontab -l 2>/dev/null || true)"
+  current_cron="$(printf '%s\n' "$current_cron" | grep -vF "$script_path" || true)"
+
+  printf '%s\n%s\n' "$current_cron" "$cron_line" | sed '/^$/d' | crontab -
+  log_msg "Cron instalado para ejecutar respaldo: $cron_line"
+  echo "Cron configurado correctamente para el usuario actual."
+}
