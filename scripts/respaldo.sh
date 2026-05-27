@@ -23,30 +23,36 @@ fi
 source "$CONFIG_FILE"
 
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
-LOG_TAG="${LOG_TAG:-gestion-automatizada}"
 CURL_BIN="${CURL_BIN:-curl}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-respaldo}"
 BACKUP_DEST_DIR="${BACKUP_DEST_DIR:-$HOME/backups}"
 CRON_SCHEDULE="${CRON_SCHEDULE:-0 2 * * *}"
 
-log_result() {
-  local message ts
-  ts="$(date --iso-8601=seconds)"
-  message="$1"
-  printf '%s - %s\n' "$ts" "$message" >> "$LOG_FILE"
-  if command -v logger >/dev/null 2>&1; then
-    logger -t "$LOG_TAG" "$message" || true
+log_init() {
+  local dir
+  dir="$(dirname "$LOG_FILE")"
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir"
   fi
+  touch "$LOG_FILE" || true
+}
+
+log_msg() {
+  log_init
+  local ts msg
+  ts="$(date --iso-8601=seconds)"
+  msg="$1"
+  echo "$ts - $msg" >> "$LOG_FILE"
 }
 
 send_telegram() {
   local text="$1"
   if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-    log_result "AVISO: Telegram no configurado; no se envía notificación: $text"
+    log_msg "AVISO: Telegram no configurado; no se envía notificación: $text"
     return 1
   fi
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
-    log_result "ERROR: curl no disponible para Telegram: $text"
+    log_msg "ERROR: curl no disponible para Telegram: $text"
     return 1
   fi
   "$CURL_BIN" -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -78,7 +84,7 @@ validate_sources() {
 do_backup() {
   local ts archive archive_size
   if ! validate_sources; then
-    log_result "RESPALDO FALLIDO: directorios inválidos"
+    log_msg "RESPALDO FALLIDO: directorios inválidos"
     return 1
   fi
 
@@ -91,14 +97,14 @@ do_backup() {
       archive_size="$(du -h "$archive" | awk '{print $1}')"
       local msg="Respaldo generado: $archive | Tamaño: $archive_size | Fecha: $(date --iso-8601=seconds)"
       echo "$msg"
-      log_result "$msg"
+      log_msg "$msg"
       send_telegram "[Respaldo] $msg"
       return 0
     fi
   fi
 
   rm -f "$archive" 2>/dev/null || true
-  log_result "RESPALDO FALLIDO: no se generó un archivo válido"
+  log_msg "RESPALDO FALLIDO: no se generó un archivo válido"
   echo "Error: el archivo comprimido no se generó correctamente."
   return 1
 }
