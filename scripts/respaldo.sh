@@ -126,3 +126,29 @@ install_cron() {
   log_msg "Cron instalado para ejecutar respaldo: $cron_line"
   echo "Cron configurado correctamente para el usuario actual."
 }
+
+show_config() {
+  echo "Directorio destino: $BACKUP_DEST_DIR"
+  echo "Prefix: $BACKUP_PREFIX"
+  echo "Cron: $CRON_SCHEDULE"
+  echo "Origenes: ${BACKUP_SOURCE_DIRS:-<vacío>}"
+}
+
+menu() {
+  while true; do
+    echo
+    echo "--- Gestión de respaldos ---"
+    echo "1) Ejecutar respaldo ahora"
+    echo "2) Programar respaldo con cron"
+    echo "3) Mostrar configuración"
+    echo "4) Salir"
+    read -rp "Elija una opción: " opt
+    case "$opt" in
+      1) do_backup ;;
+      2) install_cron ;;
+      3) show_config ;;
+      4) exit 0 ;;
+      *) echo "Opción inválida." ;;
+    esac
+  done
+}
