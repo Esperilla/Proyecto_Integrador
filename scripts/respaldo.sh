@@ -152,3 +152,18 @@ menu() {
     esac
   done
 }
+
+main() {
+  case "${1:-}" in
+    --backup-now) do_backup ;;
+    --install-cron) install_cron ;;
+    --show-config) show_config ;;
+    "") menu ;;
+    *)
+      echo "Uso: $0 [--backup-now|--install-cron|--show-config]"
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
