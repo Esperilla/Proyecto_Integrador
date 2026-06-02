@@ -39,6 +39,7 @@ El archivo de configuración principal unifica las variables utilizadas por todo
 Los scripts se encuentran dentro del directorio `scripts/`:
 
 ### 1. Script de Usuarios (`scripts/usuarios.sh`)
+
 Diseñado para la administración interactiva de usuarios del sistema. Debe ejecutarse con privilegios de superusuario (`sudo`).
 
 - **Características**:
@@ -77,3 +78,9 @@ Automatiza la compresión de directorios con `tar`, valida los resultados, regis
     - `--backup-now`: Ejecuta el respaldo inmediatamente.
     - `--install-cron`: Configura e instala la tarea en el crontab actual del usuario.
     - `--show-config`: Muestra los parámetros de configuración vigentes cargados desde `config.txt`.
+- **Nota Importante**: Se debe crear previamente desde root, el archivo log y darle propiedad del mismo al usuario administrador, para que pueda escribir en la ruta /var/log, sino no podrá hacerlo.
+
+```bash
+sudo touch /var/log/gestion_automatizada.log
+sudo chown supervisor:supervisor /var/log/gestion_automatizada.log
+```
