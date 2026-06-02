@@ -195,7 +195,7 @@ modify_user() {
 
 list_users() {
   echo "Usuarios del sistema (login):"
-  cut -d: -f1 /etc/passwd | column
+  cut -d: -f1 /etc/passwd
 }
 
 trap 'echo; echo "Saliendo..."; exit 0' SIGINT SIGTERM
