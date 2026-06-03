@@ -7,16 +7,22 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
+LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 
-timestamp() { date '+%Y-%m-%d %H:%M:%S'; }
+log_init() {
+  local dir
+  dir="$(dirname "$LOG_FILE")"
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir"
+  fi
+}
 
 log_msg() {
-    local msg="$1"
-    if [ -n "${LOG_FILE:-}" ]; then
-        echo "$(timestamp) - ${msg}" >> "$LOG_FILE" 2>/dev/null || echo "$(timestamp) - ${msg}" >> "$SCRIPT_DIR/gestion_automatizada.log"
-    else
-        echo "$(timestamp) - ${msg}" >> "$SCRIPT_DIR/gestion_automatizada.log"
-    fi
+  log_init
+  local ts msg
+  ts="$(date --iso-8601=seconds)"
+  msg="$1"
+  echo "$ts - $msg" >> "$LOG_FILE"
 }
 
 send_telegram() {
@@ -51,28 +57,25 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
-# Cargar variables esenciales desde config.txt sin usar 'source' directo (evita CRLF issues)
-TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?(.*)"?/\1/' | tr -d '\r')
-TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?(.*)"?/\1/' | tr -d '\r')
-LOG_FILE=$(grep -E '^LOG_FILE=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?(.*)"?/\1/' | tr -d '\r')
-SERVICES=$(grep -E '^SERVICES=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?(.*)"?/\1/' | tr -d '\r')
+TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
+TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
+LOG_FILE=$(grep -E '^LOG_FILE=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
+SERVICES=$(grep -E '^SERVICES=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
 
 if [ -z "$SERVICES" ]; then
     echo "La variable SERVICES no está definida en $CONFIG_FILE." >&2
     echo "Agrega una línea como: SERVICES=\"ssh nginx mysql\"" >&2
-    log_msg "No se definieron servicios en config.txt (SERVICES)"
+    log_msg "SERVICES no definido en config.txt. Abortando."
     exit 1
 fi
 
 log_msg "Inicio de revisión de servicios: $SERVICES"
 
 for svc in $SERVICES; do
-    # Normalizar: si el usuario pasó 'nginx.service' ignorar '.service'
     svc_name="$svc"
     svc_name="${svc_name%.service}"
 
-    # Comprobar existencia de la unidad
-    if ! systemctl list-units --type=service --all | grep -q "^${svc_name}.service"; then
+    if ! systemctl list-units --type=service --all | grep -q "${svc_name}.service"; then
         msg="Servicio ${svc_name} no encontrado en systemd"
         echo "$msg"
         log_msg "$msg"
@@ -92,7 +95,6 @@ for svc in $SERVICES; do
     echo "$msg"
     log_msg "$msg"
 
-    # Construir comando de reinicio (usar sudo si no somos root)
     if [ "$(id -u)" -eq 0 ]; then
         restart_cmd=(systemctl restart "$svc_name")
     else
