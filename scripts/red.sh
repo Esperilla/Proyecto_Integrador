@@ -50,6 +50,54 @@ log_msg() {
     echo "$ts - $msg" >> "$LOG_FILE"
 }
 
+send_telegram() {
+    local text="$1"
+
+    if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+        log_msg "AVISO: Telegram no configurado."
+        return 1
+    fi
+
+    if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
+        log_msg "ERROR: curl no disponible."
+        return 1
+    fi
+
+    "$CURL_BIN" -s -X POST \
+        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d chat_id="${TELEGRAM_CHAT_ID}" \
+        -d text="$text" >/dev/null 2>&1 || true
+}
+
+
+parse_hosts() {
+    local raw_hosts="${NETWORK_HOSTS:-}"
+
+    if [ -z "$raw_hosts" ]; then
+        return 1
+    fi
+
+    HOSTS=( $raw_hosts )
+}
+
+validate_config() {
+    if ! parse_hosts; then
+        echo "NETWORK_HOSTS está vacío en config.txt"
+        return 1
+    fi
+
+    if ! command -v ping >/dev/null 2>&1; then
+        echo "ping no está instalado."
+        return 1
+    fi
+
+    if ! command -v nc >/dev/null 2>&1; then
+        echo "nc (netcat) no está instalado."
+        return 1
+    fi
+}
+
+
 check_port() {
     local host="$1"
     local port="$2"
@@ -97,7 +145,7 @@ check_hosts() {
 
                         if [[ " ${CRITICAL_PORTS:-} " =~ " ${port} " ]]; then
 
-                            echo "ALERTA RED: Puerto crítico $port cerrado en $host"
+                            send_telegram "ALERTA RED: Puerto crítico $port cerrado en $host"
 
                         fi
                     fi
@@ -122,7 +170,7 @@ check_hosts() {
 
             classification="SIN RESPUESTA"
 
-            echo "ALERTA RED: Host sin respuesta -> $host"
+            send_telegram "ALERTA RED: Host sin respuesta -> $host"
         fi
 
         echo "$host => $classification"
