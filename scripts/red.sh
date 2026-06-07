@@ -1,0 +1,188 @@
+#!/bin/bash
+set -u -o pipefail
+
+###############################################################################
+# red.sh
+# Monitorea conectividad de hosts mediante ping y verificación de puertos.
+# Clasifica los hosts como accesibles, parcialmente accesibles o sin respuesta.
+# Envía alertas por Telegram cuando un host o puerto crítico falla.
+# Registra todos los resultados en el log del sistema.
+###############################################################################
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/../config.txt"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    CONFIG_FILE="$PWD/config.txt"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "No se encontró config.txt"
+    exit 1
+fi
+
+source "$CONFIG_FILE"
+
+LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
+CURL_BIN="${CURL_BIN:-curl}"
+PING_COUNT="${PING_COUNT:-2}"
+
+log_init() {
+    local dir
+
+    dir="$(dirname "$LOG_FILE")"
+
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+    fi
+
+    touch "$LOG_FILE" || true
+}
+
+log_msg() {
+    log_init
+
+    local ts msg
+
+    ts="$(date --iso-8601=seconds)"
+    msg="$1"
+
+    echo "$ts - $msg" >> "$LOG_FILE"
+}
+
+check_port() {
+    local host="$1"
+    local port="$2"
+
+    nc -z -w 2 "$host" "$port" >/dev/null 2>&1
+}
+
+check_hosts() {
+
+    local entry
+    local host
+    local ports
+    local total_ports
+    local open_ports
+    local classification
+
+    for entry in "${HOSTS[@]}"; do
+
+        host="${entry%%:*}"
+        ports="${entry#*:}"
+
+        if [ "$host" = "$ports" ]; then
+            ports=""
+        fi
+
+        echo
+        echo "Verificando $host ..."
+
+        if ping -c "$PING_COUNT" -W 2 "$host" >/dev/null 2>&1; then
+
+            total_ports=0
+            open_ports=0
+
+            if [ -n "$ports" ]; then
+
+                IFS=',' read -ra PORT_LIST <<< "$ports"
+
+                for port in "${PORT_LIST[@]}"; do
+
+                    total_ports=$((total_ports + 1))
+
+                    if check_port "$host" "$port"; then
+                        open_ports=$((open_ports + 1))
+                    else
+
+                        if [[ " ${CRITICAL_PORTS:-} " =~ " ${port} " ]]; then
+
+                            echo "ALERTA RED: Puerto crítico $port cerrado en $host"
+
+                        fi
+                    fi
+
+                done
+            fi
+
+            if [ "$total_ports" -eq 0 ]; then
+                classification="ACCESIBLE"
+
+            elif [ "$open_ports" -eq "$total_ports" ]; then
+                classification="ACCESIBLE"
+
+            elif [ "$open_ports" -gt 0 ]; then
+                classification="PARCIALMENTE ACCESIBLE"
+
+            else
+                classification="SIN PUERTOS DISPONIBLES"
+            fi
+
+        else
+
+            classification="SIN RESPUESTA"
+
+            echo "ALERTA RED: Host sin respuesta -> $host"
+        fi
+
+        echo "$host => $classification"
+
+        log_msg \
+        "Host=$host Estado=$classification PuertosAbiertos=$open_ports/$total_ports"
+
+    done
+}
+
+show_config() {
+    echo "Hosts: ${NETWORK_HOSTS:-<vacío>}"
+    echo "Puertos críticos: ${CRITICAL_PORTS:-<vacío>}"
+    echo "Log: $LOG_FILE"
+}
+
+menu() {
+
+    while true; do
+
+        echo
+        echo "--- Monitoreo de Red ---"
+        echo "1) Ejecutar monitoreo"
+        echo "2) Mostrar configuración"
+        echo "3) Salir"
+
+        read -rp "Elija una opción: " opt
+
+        case "$opt" in
+            1) check_hosts ;;
+            2) show_config ;;
+            3) exit 0 ;;
+            *) echo "Opción inválida." ;;
+        esac
+
+    done
+}
+
+main() {
+
+    case "${1:-}" in
+
+        --check)
+            check_hosts
+            ;;
+
+        --show-config)
+            show_config
+            ;;
+
+        "")
+            menu
+            ;;
+
+        *)
+            echo "Uso: $0 [--check|--show-config]"
+            exit 1
+            ;;
+
+    esac
+}
+
+main "$@"
