@@ -1,11 +1,32 @@
 services:
   debian-lab:
     build: .
-    container_name: proyecto_integrador_env
+    container_name: proyecto_admon_cliente
+    networks:
+      redProyecto:
+        ipv4_address: 172.20.0.2
     volumes:
       - .:/workspace
-      - /sys/fs/cgroup:/sys/fs/cgroup:rw      
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
     tty: true
     stdin_open: true
     restart: always
     privileged: true
+
+  debian-lab2:
+    build: .
+    container_name: proyecto_admon_servidor
+    networks:
+      redProyecto:
+        ipv4_address: 172.20.0.5
+    tty: true
+    stdin_open: true
+    restart: always
+    privileged: true
+
+networks:
+  redProyecto:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
