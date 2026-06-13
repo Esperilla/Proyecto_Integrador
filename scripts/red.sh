@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
+
 PING_COUNT="${PING_COUNT:-2}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -50,7 +51,7 @@ send_telegram() {
     return 1
   fi
   if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-    log_msg "AVISO: credenciales Telegram incompletas; no se envía: $text"
+    log_msg "AVISO: Telegram no configurado; no se envía notificación: $text"
     return 1
   fi
   "$CURL_BIN" -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
