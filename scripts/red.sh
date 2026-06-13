@@ -17,7 +17,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "No se encontró config.txt"
+    echo "No se encontró config.txt. Crea $CONFIG_FILE"
     exit 1
 fi
 
