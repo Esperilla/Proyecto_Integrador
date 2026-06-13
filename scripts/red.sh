@@ -11,6 +11,9 @@ set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
+LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
+CURL_BIN="${CURL_BIN:-curl}"
+PING_COUNT="${PING_COUNT:-2}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     CONFIG_FILE="$PWD/config.txt"
@@ -23,52 +26,36 @@ fi
 
 source "$CONFIG_FILE"
 
-LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
-CURL_BIN="${CURL_BIN:-curl}"
-PING_COUNT="${PING_COUNT:-2}"
-
 log_init() {
     local dir
-
     dir="$(dirname "$LOG_FILE")"
-
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
     fi
-
     touch "$LOG_FILE" || true
 }
 
 log_msg() {
     log_init
-
     local ts msg
-
     ts="$(date --iso-8601=seconds)"
     msg="$1"
-
     echo "$ts - $msg" >> "$LOG_FILE"
 }
 
 send_telegram() {
-    local text="$1"
-
-    if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
-        log_msg "AVISO: Telegram no configurado."
-        return 1
-    fi
-
-    if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
-        log_msg "ERROR: curl no disponible."
-        return 1
-    fi
-
-    "$CURL_BIN" -s -X POST \
-        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-        -d chat_id="${TELEGRAM_CHAT_ID}" \
-        -d text="$text" >/dev/null 2>&1 || true
+  local text="$1"
+  if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
+    log_msg "ERROR: curl no disponible para notificar: $text"
+    return 1
+  fi
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+    log_msg "AVISO: credenciales Telegram incompletas; no se envía: $text"
+    return 1
+  fi
+  "$CURL_BIN" -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
-
 
 parse_hosts() {
     local raw_hosts="${NETWORK_HOSTS:-}"
