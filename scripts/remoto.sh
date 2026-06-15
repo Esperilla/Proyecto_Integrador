@@ -10,6 +10,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 
+LOG_FILE_DEFAULT="$SCRIPT_DIR/../logs/gestion_automatizada.log"
+LOG_FILE="$LOG_FILE_DEFAULT"
+
 if [ ! -f "$CONFIG_FILE" ]; then
 	CONFIG_FILE="$PWD/config.txt"
 fi
@@ -17,9 +20,6 @@ fi
 timestamp() {
 	date --iso-8601=seconds
 }
-
-LOG_FILE_DEFAULT="$SCRIPT_DIR/../logs/gestion_automatizada.log"
-LOG_FILE="$LOG_FILE_DEFAULT"
 
 log_init() {
 	local dir
@@ -134,3 +134,159 @@ write_report() {
 	log_msg "Reporte generado para $host ($status): $report_file"
 	echo "[$safe_host] $status -> $report_file"
 }
+
+copy_and_execute_host() {
+	local host="$1"
+	local safe_host
+	local report_file
+	local remote_name
+	local remote_path
+	local output
+	local rc
+
+	safe_host="$(sanitize_host "$host")"
+	report_file="$RUN_REPORT_DIR/${safe_host}_$(date +%Y%m%d_%H%M%S).txt"
+
+	if ! is_valid_host "$host"; then
+		write_report "$host" "$safe_host" "HOST_INVALIDO" "1" "Host con formato invalido" "$report_file"
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+		return
+	fi
+
+	remote_name="$(basename "$LOCAL_SCRIPT")"
+	remote_path="$REMOTE_TARGET_DIR/${remote_name%.*}_$$_$(date +%s).sh"
+
+	SCP_CMD=(scp -P "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT")
+	SSH_CMD=(ssh -p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT")
+
+	if [ -n "$SSH_KEY" ]; then
+		SCP_CMD+=( -i "$SSH_KEY" )
+		SSH_CMD+=( -i "$SSH_KEY" )
+	fi
+
+	if ! "${SCP_CMD[@]}" "$LOCAL_SCRIPT" "${REMOTE_USER}@${host}:${remote_path}" >/tmp/remoto_scp_$$.log 2>&1; then
+		output="$(cat /tmp/remoto_scp_$$.log 2>/dev/null || true)"
+		rm -f /tmp/remoto_scp_$$.log
+		write_report "$host" "$safe_host" "SCP_ERROR" "1" "$output" "$report_file"
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+		return
+	fi
+
+	rm -f /tmp/remoto_scp_$$.log
+
+	output="$(${SSH_CMD[@]} "${REMOTE_USER}@${host}" "bash '$remote_path' 2>&1; rc=\$?; rm -f '$remote_path'; exit \$rc" 2>&1)"
+	rc=$?
+
+	if [ "$rc" -eq 0 ]; then
+		write_report "$host" "$safe_host" "OK" "$rc" "$output" "$report_file"
+		OK_COUNT=$((OK_COUNT + 1))
+	else
+		write_report "$host" "$safe_host" "SSH_ERROR" "$rc" "$output" "$report_file"
+		FAIL_COUNT=$((FAIL_COUNT + 1))
+	fi
+}
+
+
+validate_inputs() {
+	if [ -z "$HOSTS_FILE" ]; then
+		echo "Error: falta archivo de hosts (-f)."
+		usage
+		exit 1
+	fi
+	if [ -z "$LOCAL_SCRIPT" ]; then
+		echo "Error: falta script local (-s)."
+		usage
+		exit 1
+	fi
+	if [ ! -f "$HOSTS_FILE" ]; then
+		echo "Error: no existe el archivo de hosts: $HOSTS_FILE"
+		exit 1
+	fi
+
+	if [ ! -f "$LOCAL_SCRIPT" ]; then
+		if [ -f "$SCRIPT_DIR/$LOCAL_SCRIPT" ]; then
+			LOCAL_SCRIPT="$SCRIPT_DIR/$LOCAL_SCRIPT"
+		elif [ -f "$PWD/$LOCAL_SCRIPT" ]; then
+			LOCAL_SCRIPT="$PWD/$LOCAL_SCRIPT"
+		else
+			echo "Error: no existe el script local: $LOCAL_SCRIPT" >&2
+			echo "Asegurate de pasar la ruta correcta o usar una ruta absoluta." >&2
+			exit 1
+		fi
+	fi
+
+	if command -v realpath >/dev/null 2>&1; then
+		LOCAL_SCRIPT="$(realpath "$LOCAL_SCRIPT")"
+	fi
+	if [ -n "$SSH_KEY" ] && [ ! -f "$SSH_KEY" ]; then
+		echo "Error: no existe la llave SSH: $SSH_KEY"
+		exit 1
+	fi
+	if ! [[ "$SSH_PORT" =~ ^[0-9]+$ ]]; then
+		echo "Error: puerto SSH invalido: $SSH_PORT"
+		exit 1
+	fi
+	if ! [[ "$CONNECT_TIMEOUT" =~ ^[0-9]+$ ]]; then
+		echo "Error: timeout invalido: $CONNECT_TIMEOUT"
+		exit 1
+	fi
+}
+
+HOSTS_FILE=""
+LOCAL_SCRIPT=""
+REMOTE_USER="$USER"
+SSH_PORT="22"
+SSH_KEY=""
+REMOTE_TARGET_DIR="/tmp"
+REPORT_BASE_DIR="$SCRIPT_DIR/../reportes/remoto"
+CONNECT_TIMEOUT="8"
+
+if [ -f "$CONFIG_FILE" ]; then
+	load_config
+fi
+
+parse_args "$@"
+validate_inputs
+
+mkdir -p "$REPORT_BASE_DIR"
+RUN_REPORT_DIR="$REPORT_BASE_DIR/ejecucion_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$RUN_REPORT_DIR"
+
+log_msg "Inicio remoto.sh | hosts=$HOSTS_FILE | script=$LOCAL_SCRIPT | output=$RUN_REPORT_DIR"
+
+read_hosts "$HOSTS_FILE"
+if [ "${#HOSTS[@]}" -eq 0 ]; then
+	echo "Error: no hay hosts validos en $HOSTS_FILE"
+	exit 1
+fi
+
+OK_COUNT=0
+FAIL_COUNT=0
+
+for host in "${HOSTS[@]}"; do
+	echo "Procesando host: $host"
+	copy_and_execute_host "$host"
+done
+
+SUMMARY_FILE="$RUN_REPORT_DIR/resumen.txt"
+{
+	echo "TIMESTAMP=$(timestamp)"
+	echo "HOSTS_TOTALES=${#HOSTS[@]}"
+	echo "EXITOS=$OK_COUNT"
+	echo "FALLOS=$FAIL_COUNT"
+	echo "REPORTES_DIR=$RUN_REPORT_DIR"
+} > "$SUMMARY_FILE"
+
+log_msg "Fin remoto.sh | total=${#HOSTS[@]} | exitos=$OK_COUNT | fallos=$FAIL_COUNT"
+
+echo ""
+echo "Resumen de ejecucion"
+echo "  Total hosts : ${#HOSTS[@]}"
+echo "  Exitos      : $OK_COUNT"
+echo "  Fallos      : $FAIL_COUNT"
+echo "  Reportes    : $RUN_REPORT_DIR"
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+	exit 1
+fi
+exit 0
