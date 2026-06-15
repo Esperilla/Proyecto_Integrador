@@ -78,3 +78,59 @@ load_config() {
 	value="$(load_config_value "REMOTE_CONNECT_TIMEOUT" "$CONFIG_FILE" 2>/dev/null || true)"
 	if [ -n "$value" ]; then CONNECT_TIMEOUT="$value"; fi
 }
+
+require_command() {
+	local cmd="$1"
+	if ! command -v "$cmd" >/dev/null 2>&1; then
+		echo "Error: se requiere '$cmd' y no esta instalado."
+		exit 1
+	fi
+}
+
+sanitize_host() {
+	echo "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
+}
+
+is_valid_host() {
+	local host="$1"
+	[[ "$host" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+read_hosts() {
+	local file="$1"
+	local line
+	HOSTS=()
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		line="$(echo "$line" | tr -d '\r')"
+		line="${line%%#*}"
+		line="$(echo "$line" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g')"
+		[ -z "$line" ] && continue
+		HOSTS+=("$line")
+	done < "$file"
+}
+
+write_report() {
+	local host="$1"
+	local safe_host="$2"
+	local status="$3"
+	local exit_code="$4"
+	local output="$5"
+	local report_file="$6"
+
+	{
+		echo "HOST=$host"
+		echo "TIMESTAMP=$(timestamp)"
+		echo "ESTADO=$status"
+		echo "CODIGO_SALIDA=$exit_code"
+		echo "SCRIPT_LOCAL=$LOCAL_SCRIPT"
+		echo "USUARIO_REMOTO=$REMOTE_USER"
+		echo "PUERTO_SSH=$SSH_PORT"
+		echo ""
+		echo "--- SALIDA REMOTA ---"
+		echo "$output"
+	} > "$report_file"
+
+	log_msg "Reporte generado para $host ($status): $report_file"
+	echo "[$safe_host] $status -> $report_file"
+}
