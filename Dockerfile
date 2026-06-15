@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     cron \
     curl \
     iputils-ping \
+    bc \
     netcat-openbsd \
     nmap \
     openssh-client \

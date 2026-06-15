@@ -24,6 +24,28 @@ services:
     restart: always
     privileged: true
 
+  debian-lab3:
+    build: .
+    container_name: proyecto_admon_servidor1
+    networks:
+      redProyecto:
+        ipv4_address: 172.20.0.6
+    tty: true
+    stdin_open: true
+    restart: always
+    privileged: true    
+
+  debian-lab4:
+    build: .
+    container_name: proyecto_admon_servidor2
+    networks:
+      redProyecto:
+        ipv4_address: 172.20.0.7
+    tty: true
+    stdin_open: true
+    restart: always
+    privileged: true
+
 networks:
   redProyecto:
     driver: bridge
