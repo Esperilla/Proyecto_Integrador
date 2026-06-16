@@ -79,6 +79,27 @@ load_config() {
 	if [ -n "$value" ]; then CONNECT_TIMEOUT="$value"; fi
 }
 
+usage() {
+	cat <<EOF
+Uso: $(basename "$0") -f HOSTS_FILE -s LOCAL_SCRIPT [opciones]
+
+Opciones:
+	-f, --hosts FILE         Archivo de hosts/IPs (uno por linea)
+	-s, --script FILE        Script local a copiar y ejecutar remotamente
+	-u, --user USER          Usuario SSH remoto (default: $USER)
+	-p, --port PORT          Puerto SSH (default: 22)
+	-i, --identity FILE      Llave privada SSH
+	-d, --remote-dir DIR     Directorio remoto temporal (default: /tmp)
+	-o, --output-dir DIR     Directorio base de reportes
+	-t, --timeout SEG        Timeout de conexion en segundos (default: 8)
+	-h, --help               Mostrar esta ayuda
+
+Tambien puedes definir valores en config.txt:
+	REMOTE_HOSTS_FILE, REMOTE_SCRIPT_LOCAL, REMOTE_USER, REMOTE_SSH_PORT,
+	REMOTE_SSH_KEY, REMOTE_TARGET_DIR, REMOTE_REPORT_DIR, REMOTE_CONNECT_TIMEOUT.
+EOF
+}
+
 require_command() {
 	local cmd="$1"
 	if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -94,6 +115,54 @@ sanitize_host() {
 is_valid_host() {
 	local host="$1"
 	[[ "$host" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+parse_args() {
+	while [ $# -gt 0 ]; do
+		case "$1" in
+			-f|--hosts)
+				HOSTS_FILE="${2:-}"
+				shift 2
+				;;
+			-s|--script)
+				LOCAL_SCRIPT="${2:-}"
+				shift 2
+				;;
+			-u|--user)
+				REMOTE_USER="${2:-}"
+				shift 2
+				;;
+			-p|--port)
+				SSH_PORT="${2:-}"
+				shift 2
+				;;
+			-i|--identity)
+				SSH_KEY="${2:-}"
+				shift 2
+				;;
+			-d|--remote-dir)
+				REMOTE_TARGET_DIR="${2:-}"
+				shift 2
+				;;
+			-o|--output-dir)
+				REPORT_BASE_DIR="${2:-}"
+				shift 2
+				;;
+			-t|--timeout)
+				CONNECT_TIMEOUT="${2:-}"
+				shift 2
+				;;
+			-h|--help)
+				usage
+				exit 0
+				;;
+			*)
+				echo "Opcion invalida: $1"
+				usage
+				exit 1
+				;;
+		esac
+	done
 }
 
 read_hosts() {
@@ -185,7 +254,6 @@ copy_and_execute_host() {
 		FAIL_COUNT=$((FAIL_COUNT + 1))
 	fi
 }
-
 
 validate_inputs() {
 	if [ -z "$HOSTS_FILE" ]; then
