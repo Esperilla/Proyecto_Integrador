@@ -13,8 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
+HOSTS_FILE="${HOSTS_FILE:-${NETWORK_HOSTS_FILE:-}}"
 
 PING_COUNT="${PING_COUNT:-2}"
+HOSTS=()
 
 if [ ! -f "$CONFIG_FILE" ]; then
     CONFIG_FILE="$PWD/config.txt"
@@ -59,13 +61,38 @@ send_telegram() {
 }
 
 parse_hosts() {
+    HOSTS=()
+
+    if [ -n "$HOSTS_FILE" ]; then
+        if [ ! -f "$HOSTS_FILE" ]; then
+            echo "No se encontró el archivo de hosts: $HOSTS_FILE"
+            return 1
+        fi
+
+        while IFS= read -r line || [ -n "$line" ]; do
+            line="${line%%#*}"
+            line="${line#${line%%[![:space:]]*}}"
+            line="${line%${line##*[![:space:]]}}"
+
+            if [ -n "$line" ]; then
+                HOSTS+=("$line")
+            fi
+        done < "$HOSTS_FILE"
+
+        if [ "${#HOSTS[@]}" -eq 0 ]; then
+            return 1
+        fi
+
+        return 0
+    fi
+
     local raw_hosts="${NETWORK_HOSTS:-}"
 
     if [ -z "$raw_hosts" ]; then
         return 1
     fi
 
-    HOSTS=( $raw_hosts )
+    read -r -a HOSTS <<< "$raw_hosts"
 }
 
 validate_config() {
@@ -89,7 +116,6 @@ validate_config() {
 check_port() {
     local host="$1"
     local port="$2"
-
     nc -z -w 2 "$host" "$port" >/dev/null 2>&1
 }
 
@@ -113,11 +139,11 @@ check_hosts() {
 
         echo
         echo "Verificando $host ..."
+        total_ports=0
+        open_ports=0
+        classification="SIN RESPUESTA"
 
         if ping -c "$PING_COUNT" -W 2 "$host" >/dev/null 2>&1; then
-
-            total_ports=0
-            open_ports=0
 
             if [ -n "$ports" ]; then
 
@@ -198,6 +224,10 @@ menu() {
 }
 
 main() {
+
+    if ! validate_config; then
+        exit 1
+    fi
 
     case "${1:-}" in
 
