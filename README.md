@@ -1,136 +1,227 @@
-# Proyecto Integrador - Programación en la Administración de Servicios
+# Proyecto Integrador — Gestor Automatizado de Servicios con Notificación por Telegram
 
-Este proyecto integrador contiene herramientas y scripts automatizados para la administración de servicios en un entorno Linux (Debian), incluyendo gestión de usuarios, respaldos, monitoreo de recursos, revisión de servicios, registro centralizado de logs (bitácora) y notificaciones en tiempo real a través de un bot de Telegram.
+**Ingeniería en Ciberseguridad e Infraestructura de Cómputo**
+*Programación para Administración de Servicios*
+
+Sistema automatizado mediante scripts en Bash para la gestión integral de servicios en sistemas GNU/Linux. Cubre gestión de usuarios, respaldos automáticos, monitoreo de recursos (CPU/disco), supervisión de servicios con `systemd`, monitoreo de red (ping y puertos) y ejecución remota de scripts vía SSH/SCP. Todas las operaciones se registran en una bitácora centralizada y envían notificaciones en tiempo real a un bot de Telegram.
 
 ---
 
 ## 🚀 Arquitectura y Entorno de Pruebas
 
-Para asegurar la portabilidad y facilitar el desarrollo, el proyecto incluye un entorno de laboratorio basado en Docker:
+El proyecto utiliza un laboratorio multi-contenedor basado en Docker con red interna estática para simular un entorno de administración real.
 
-- **`Dockerfile`**: Basado en `debian:12-slim`. Instala `systemd`, herramientas de red (`curl`, `iputils-ping`, `netcat-openbsd`, `nmap`, `openssh`, `iproute2`), administración (`cron`, `procps`, `sudo`, `nano`, `tar`) y limpia unidades de systemd innecesarias para contenedores. Habilita los servicios `ssh` y `cron` por defecto. Crea un usuario de pruebas no privilegiado `supervisor` (contraseña: `password`) con permisos de `sudo` sin contraseña, directorios de prueba (`dir_Prueba1`, `dir_Prueba2`) y el archivo de bitácora preconfigurado.
-- **`docker-compose.yml`**: Define el servicio `debian-lab` que levanta el contenedor en modo **privilegiado** con `systemd` como proceso init (`/sbin/init`), monta el directorio del proyecto en `/workspace` y el cgroup del host en `/sys/fs/cgroup`.
+### Infraestructura
+
+- **`Dockerfile`**: Basado en `debian:12-slim` con `systemd` como proceso init (`/sbin/init`). Instala las dependencias del proyecto (`systemd`, `cron`, `curl`, `bc`, `iputils-ping`, `netcat-openbsd`, `nmap`, `openssh-client/server`, `procps`, `sudo`, `nano`, `iproute2`, `tar`), limpia unidades de systemd innecesarias para contenedores, habilita los servicios `ssh` y `cron`, y crea el usuario de pruebas `supervisor` (contraseña: `password`) con `sudo` sin contraseña. Incluye directorios de prueba y el archivo de bitácora preconfigurado.
+
+- **`docker-compose.yml`**: Define 4 contenedores interconectados en la red `redProyecto` (`172.20.0.0/16`):
+
+  | Contenedor | Nombre | IP | Rol |
+  |---|---|---|---|
+  | `debian-lab` | `proyecto_admon_cliente` | `172.20.0.2` | Cliente principal (monta `/workspace`) |
+  | `debian-lab2` | `proyecto_admon_servidor` | `172.20.0.5` | Servidor remoto 1 |
+  | `debian-lab3` | `proyecto_admon_servidor1` | `172.20.0.6` | Servidor remoto 2 |
+  | `debian-lab4` | `proyecto_admon_servidor2` | `172.20.0.7` | Servidor remoto 3 |
+
+  Todos los contenedores corren en modo **privilegiado** con acceso a cgroups para soportar `systemd`.
 
 ### Cómo levantar el laboratorio
 
-1. Construir e iniciar el contenedor:
+1. Construir e iniciar todos los contenedores:
    ```bash
    docker compose up -d --build
    ```
-2. Entrar al contenedor interactivo:
+2. Entrar al contenedor cliente:
    ```bash
    docker compose exec debian-lab bash
+   ```
+3. Entrar a un servidor remoto (ejemplo):
+   ```bash
+   docker compose exec debian-lab2 bash
    ```
 
 ---
 
 ## ⚙️ Configuración Global (`config.txt`)
 
-El archivo de configuración principal unifica las variables utilizadas por todos los scripts. Contiene:
+Archivo de configuración central que unifica las variables utilizadas por todos los scripts. Está organizado en las siguientes secciones:
 
-- **Configuración de Telegram**: `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` para enviar alertas y reportes de ejecución de manera automática.
-- **Configuración de Logs**: Ruta del archivo bitácora central (`LOG_FILE`, por defecto `/var/log/gestion_automatizada.log`).
-- **Configuración de Respaldos**: Directorios de origen (`BACKUP_SOURCE_DIRS`), directorio destino (`BACKUP_DEST_DIR`), prefijo de archivos (`BACKUP_PREFIX`) y la programación de cron (`CRON_SCHEDULE`).
-- **Configuración de Servicios**: Lista de servicios a monitorear (`SERVICES`, por defecto `ssh cron`).
+| Sección | Variables |
+|---|---|
+| **Telegram** | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
+| **Logs** | `LOG_FILE` (por defecto `/var/log/gestion_automatizada.log`) |
+| **Respaldos** | `BACKUP_SOURCE_DIRS`, `BACKUP_DEST_DIR`, `BACKUP_PREFIX` |
+| **Monitoreo** | `CPU_THRESHOLD`, `DISK_THRESHOLD`, `DISK_PATHS` |
+| **Servicios** | `SERVICES` (lista de servicios systemd a monitorear) |
+| **Remoto** | `REMOTE_HOSTS_FILE`, `REMOTE_SCRIPT_LOCAL`, `REMOTE_USER`, `REMOTE_SSH_PORT`, `REMOTE_SSH_KEY`, `REMOTE_TARGET_DIR`, `REMOTE_REPORT_DIR`, `REMOTE_CONNECT_TIMEOUT` |
+| **Red** | `NETWORK_HOSTS` (formato `IP:puerto1,puerto2`), `CRITICAL_PORTS` |
+| **Cron** | `CRON_SCHEDULE` |
 
 ---
 
 ## 📂 Scripts
 
-Los scripts se encuentran dentro del directorio `scripts/`:
+Todos los scripts se encuentran en el directorio `scripts/`. Cada uno es funcional de forma independiente, lee su configuración desde `config.txt`, registra acciones en la bitácora central y notifica eventos relevantes por Telegram.
 
-### 1. Script de Usuarios (`scripts/usuarios.sh`)
+---
 
-Diseñado para la administración interactiva de usuarios del sistema. Debe ejecutarse con privilegios de superusuario (`sudo`).
+### 1. Gestión de Usuarios — `scripts/usuarios.sh`
 
-- **Características**:
-  - **Validaciones de Seguridad**: Validación estricta del formato del nombre de usuario mediante expresiones regulares (letras minúsculas, números, guiones y longitud máxima de 32 caracteres) y comprobación de existencia previa en el sistema.
-  - **Confirmaciones**: Petición de confirmación interactiva para evitar la eliminación accidental de cuentas.
-  - **Auditoría e Integración**: Registra cada operación en el archivo de bitácora global y envía notificaciones automáticas al bot de Telegram.
-- **Menú Interactivo**:
-  Al ejecutar el script con `sudo ./usuarios.sh`, se muestra un menú en la terminal:
-  1. **Crear usuario**: Crea un usuario nuevo con su directorio home, comentarios (nombre completo) y contraseña inicial.
-  2. **Eliminar usuario**: Borra un usuario del sistema de forma segura junto con su directorio home (`userdel -r`) tras una confirmación.
-  3. **Modificar usuario**: Despliega un submenú para aplicar cambios específicos a una cuenta existente:
-     - Cambiar la shell asignada.
-     - Actualizar la información completa (GECOS).
-     - Modificar la contraseña.
-     - Añadir al usuario a grupos secundarios.
-     - Quitar al usuario de grupos secundarios específicos (reconstruyendo la lista de grupos actual de manera segura).
-  4. **Listar usuarios**: Muestra todos los usuarios registrados en el sistema.
-  5. **Salir**: Finaliza el script.
-
-### 2. Script de Respaldos (`scripts/respaldo.sh`)
-
-Automatiza la compresión de directorios con `tar`, valida los resultados, registra las bitácoras y notifica mediante Telegram.
+Administración interactiva de usuarios del sistema. Requiere privilegios de superusuario (`sudo`).
 
 - **Características**:
-  - Verificación automática de existencia de los directorios de origen.
-  - Generación de bitácora detallada con marcas de tiempo en formato ISO-8601.
-  - Notificación de tamaño del respaldo y fecha al canal de Telegram configurado.
-  - Instalación automática y transparente del script en el `crontab` del usuario actual (sin requerir permisos de `root`).
-- **Modo de uso**:
-  - **Menú Interactivo**: Al ejecutar `./respaldo.sh` sin argumentos, se despliega un menú interactivo en consola:
-    1. Ejecutar respaldo ahora
-    2. Programar respaldo con cron
-    3. Mostrar configuración
-    4. Salir
-  - **Argumentos de línea de comandos**:
-    - `--backup-now`: Ejecuta el respaldo inmediatamente.
-    - `--install-cron`: Configura e instala la tarea en el crontab actual del usuario.
-    - `--show-config`: Muestra los parámetros de configuración vigentes cargados desde `config.txt`.
+  - Validación estricta de nombres de usuario mediante expresión regular (`^[a-z_][a-z0-9_-]{0,31}$`).
+  - Comprobación de existencia previa antes de crear/eliminar/modificar.
+  - Confirmación interactiva antes de eliminar cuentas.
+  - Registro en bitácora y notificación por Telegram de cada operación.
+- **Menú interactivo** (`sudo ./usuarios.sh`):
+  1. **Crear usuario** — con directorio home, GECOS y contraseña inicial.
+  2. **Eliminar usuario** — eliminación segura con `userdel -r` tras confirmación.
+  3. **Modificar usuario** — submenú con opciones: cambiar shell, GECOS, contraseña, añadir/quitar grupos.
+  4. **Listar usuarios** — muestra los usuarios del sistema.
+  5. **Salir**.
 
-### 3. Script de Monitoreo (`scripts/monitoreo.sh`)
+---
 
-Monitorea el uso de CPU y disco del sistema, registra las lecturas en la bitácora y envía alertas por Telegram cuando se superan los umbrales configurados.
+### 2. Respaldos Automáticos — `scripts/respaldo.sh`
+
+Automatiza la compresión de directorios con `tar`, verifica los resultados y programa la ejecución periódica con `cron`.
 
 - **Características**:
-  - Lectura de uso de CPU mediante muestreo de `/proc/stat` (cálculo de porcentaje real de ocupación).
-  - Lectura de uso de disco con `df` para una o múltiples particiones.
-  - Umbrales configurables por argumentos (por defecto 70% para CPU y disco).
-  - Modo de ejecución única (`--once`, por defecto) o modo continuo con intervalo configurable (`--interval`).
+  - Verificación de existencia de los directorios de origen.
+  - Validación del archivo comprimido generado (existencia y tamaño > 0).
+  - Bitácora con marcas de tiempo ISO-8601.
+  - Notificación por Telegram con ruta, tamaño y fecha del respaldo.
+  - Instalación automática en el `crontab` del usuario actual (sin requerir `root`).
+- **Menú interactivo** (`./respaldo.sh`):
+  1. Ejecutar respaldo ahora
+  2. Programar respaldo con cron
+  3. Mostrar configuración
+  4. Salir
+- **Argumentos CLI**:
+  - `--backup-now` — Ejecuta respaldo inmediatamente.
+  - `--install-cron` — Instala la tarea en el crontab.
+  - `--show-config` — Muestra la configuración vigente.
+
+---
+
+### 3. Monitoreo de Recursos — `scripts/monitoreo.sh`
+
+Monitorea el uso de CPU y disco, registra cada lectura y envía alertas por Telegram al superar los umbrales.
+
+- **Características**:
+  - Lectura de CPU mediante muestreo de `/proc/stat` (cálculo de porcentaje real).
+  - Lectura de disco con `df` para múltiples particiones.
+  - Umbrales configurables vía `config.txt` o argumentos CLI (por defecto 70%).
+  - Modo ejecución única (`--once`, por defecto) o modo continuo (`--interval`).
   - Manejo de señales (`SIGINT`, `SIGTERM`) para salida limpia.
-- **Argumentos de línea de comandos**:
-  - `--cpu N`: Umbral de alerta para CPU (%).
-  - `--disk N`: Umbral de alerta para disco (%).
-  - `--paths P1,P2`: Rutas de particiones a comprobar (separadas por comas, por defecto `/`).
-  - `--interval S`: Intervalo en segundos para lecturas periódicas (activa modo continuo).
-  - `--once`: Ejecutar una sola lectura y salir (comportamiento por defecto).
-- **Ejemplo de uso**:
+- **Argumentos CLI**:
+  - `--cpu N` — Umbral de CPU (%).
+  - `--disk N` — Umbral de disco (%).
+  - `--paths P1,P2` — Particiones a monitorear (separadas por comas).
+  - `--interval S` — Intervalo en segundos (activa modo continuo).
+  - `--once` — Ejecutar una sola lectura y salir.
+- **Ejemplo**:
   ```bash
-  # Lectura única con umbrales personalizados
-  ./monitoreo.sh --cpu 80 --disk 90
-
-  # Monitoreo continuo cada 30 segundos
-  ./monitoreo.sh --cpu 75 --disk 85 --interval 30
-  ```
-
-### 4. Script de Servicios (`scripts/servicios.sh`)
-
-Revisa el estado de los servicios definidos en `config.txt` (variable `SERVICES`), intenta reiniciar los que estén inactivos y notifica los resultados por Telegram.
-
-- **Características**:
-  - Lee la lista de servicios desde `config.txt` mediante parsing directo (compatible con entornos sin `source`).
-  - Verifica la existencia de cada servicio en `systemd` antes de consultar su estado.
-  - Si un servicio está inactivo, intenta reiniciarlo automáticamente con `systemctl restart` (usa `sudo` si no es root).
-  - Verifica el estado posterior al reinicio y reporta éxito o fallo.
-  - Registra cada paso en la bitácora y notifica por Telegram.
-- **Modo de uso**:
-  ```bash
-  # Ejecutar revisión de servicios
-  sudo ./servicios.sh
-
-  # Mostrar ayuda
-  ./servicios.sh -h
+  ./monitoreo.sh --cpu 80 --disk 90 --paths "/,/home"
+  ./monitoreo.sh --interval 30
   ```
 
 ---
 
-## 📝 Nota sobre permisos del archivo de log
+### 4. Supervisión de Servicios — `scripts/servicios.sh`
 
-El Dockerfile ya crea el archivo de log y asigna la propiedad al usuario `supervisor`. Si por alguna razón necesitas recrearlo manualmente:
+Revisa el estado de servicios `systemd`, reinicia automáticamente los inactivos y notifica los resultados.
+
+- **Características**:
+  - Lee la lista de servicios desde `config.txt` (variable `SERVICES`) mediante parsing directo con `grep`/`sed`.
+  - Verifica existencia de cada servicio en `systemd` antes de consultar su estado.
+  - Reinicio automático con `systemctl restart` (usa `sudo` si no es root).
+  - Verificación post-reinicio y reporte de éxito o fallo.
+  - Registro completo en bitácora y notificación por Telegram.
+- **Modo de uso**:
+  ```bash
+  sudo ./servicios.sh        # Ejecutar revisión
+  ./servicios.sh -h           # Mostrar ayuda
+  ```
+
+---
+
+### 5. Ejecución Remota — `scripts/remoto.sh`
+
+Copia un script local a hosts remotos por SCP, lo ejecuta por SSH y genera reportes individuales por host.
+
+- **Características**:
+  - Lee hosts desde un archivo externo (uno por línea, soporta comentarios `#`).
+  - Copia el script vía `scp` y lo ejecuta remotamente vía `ssh` en modo batch (`BatchMode=yes`).
+  - Limpieza automática del script remoto tras la ejecución.
+  - Soporte para autenticación por llave SSH o contraseña.
+  - Validación de formato de host, existencia de archivos y parámetros numéricos.
+  - Genera un reporte individual por cada host con: estado, código de salida, timestamp y salida remota.
+  - Genera un archivo resumen con totales de éxitos y fallos.
+  - Timeout de conexión configurable.
+- **Argumentos CLI**:
+  - `-f, --hosts FILE` — Archivo de hosts/IPs.
+  - `-s, --script FILE` — Script local a copiar y ejecutar.
+  - `-u, --user USER` — Usuario SSH remoto.
+  - `-p, --port PORT` — Puerto SSH (por defecto 22).
+  - `-i, --identity FILE` — Llave privada SSH.
+  - `-d, --remote-dir DIR` — Directorio remoto temporal (por defecto `/tmp`).
+  - `-o, --output-dir DIR` — Directorio base de reportes.
+  - `-t, --timeout SEG` — Timeout de conexión en segundos.
+- **Ejemplo**:
+  ```bash
+  ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/holaMundo.sh
+  ./remoto.sh -f hosts.txt -s script.sh -u supervisor -i ~/.ssh/id_ed25519
+  ```
+
+---
+
+### 6. Monitoreo de Red — `scripts/red.sh`
+
+Verifica la conectividad de hosts mediante `ping` y verifica puertos con `nc` (netcat). Clasifica cada host y alerta sobre puertos críticos caídos.
+
+- **Características**:
+  - Lee hosts desde `config.txt` (variable `NETWORK_HOSTS`, formato `IP:puerto1,puerto2`) o desde un archivo externo.
+  - Verificación de conectividad con `ping`.
+  - Verificación de puertos abiertos con `nc -z`.
+  - Clasificación de cada host: **ACCESIBLE**, **PARCIALMENTE ACCESIBLE**, **SIN PUERTOS DISPONIBLES** o **SIN RESPUESTA**.
+  - Alertas por Telegram cuando un host no responde o un puerto crítico (`CRITICAL_PORTS`) está cerrado.
+  - Registro detallado en bitácora con puertos abiertos vs totales.
+- **Menú interactivo** (`./red.sh`):
+  1. Ejecutar monitoreo
+  2. Mostrar configuración
+  3. Salir
+- **Argumentos CLI**:
+  - `--check` — Ejecutar monitoreo directamente.
+  - `--show-config` — Mostrar configuración de red.
+- **Ejemplo**:
+  ```bash
+  ./red.sh --check
+  ```
+
+---
+
+## 📝 Notas
+
+### Permisos del archivo de log
+
+El Dockerfile crea automáticamente el archivo de bitácora y asigna la propiedad al usuario `supervisor`. Si necesitas recrearlo manualmente:
 
 ```bash
 sudo touch /var/log/gestion_automatizada.log
 sudo chown supervisor:supervisor /var/log/gestion_automatizada.log
+```
+
+### Configuración SSH para ejecución remota
+
+Para usar `remoto.sh` entre los contenedores del laboratorio, es necesario generar las llaves SSH en el contenedor cliente y copiarlas a los servidores:
+
+```bash
+# En el contenedor cliente (172.20.0.2)
+ssh-keygen -t ed25519 -f /home/supervisor/.ssh/id_ed25519 -N ""
+ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.5
+ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.6
+ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.7
 ```
