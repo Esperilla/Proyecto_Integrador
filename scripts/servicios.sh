@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-
+source "${0%/*}"/mensajes.sh
 ###############################################################################
 # servicios.sh
 # Revisa una lista de servicios definidos en config.txt, intenta reiniciarlos
@@ -19,17 +19,17 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "No se encontró config.txt, crea $CONFIG_FILE"
+  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
-  echo "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
 fi
 if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
-  echo "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
 log_init() {
@@ -79,8 +79,8 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
 fi
 
 if [ -z "$SERVICES" ]; then
-    echo "La variable SERVICES no está definida en $CONFIG_FILE." >&2
-    echo "Agrega una línea como: SERVICES=\"ssh nginx mysql\"" >&2
+    salida_error "La variable SERVICES no está definida en $CONFIG_FILE." >&2
+    mensaje_info "Agrega una línea como: SERVICES=\"ssh nginx mysql\"" >&2
     log_msg "SERVICES no definido en config.txt. Abortando."
     exit 1
 fi
@@ -93,22 +93,22 @@ for svc in $SERVICES; do
 
     if ! systemctl list-units --type=service --all | grep -q "${svc_name}.service"; then
         msg="Servicio ${svc_name} no encontrado en systemd"
-        echo "$msg"
+        mensaje_info "$msg"
         log_msg "$msg"
-        send_telegram "[servicios.sh] ${msg}"
+        send_telegram "[Servicios.sh] ${msg}"
         continue
     fi
 
     status=$(systemctl is-active "$svc_name" 2>/dev/null || echo unknown)
     if [ "$status" = "active" ]; then
         msg="Servicio ${svc_name} está activo"
-        echo "$msg"
+        mensaje_info "$msg"
         log_msg "$msg"
         continue
     fi
 
     msg="Servicio ${svc_name} inactivo (estado: $status). Intentando reiniciar..."
-    echo "$msg"
+    mensaje_advertencia "$msg"
     log_msg "$msg"
 
     if [ "$(id -u)" -eq 0 ]; then
@@ -126,20 +126,20 @@ for svc in $SERVICES; do
         new_status=$(systemctl is-active "$svc_name" 2>/dev/null || echo unknown)
         if [ "$new_status" = "active" ]; then
             result_msg="Reinicio exitoso: ${svc_name} ahora activo"
-            echo "$result_msg"
+            mensaje_exito "$result_msg"
             log_msg "$result_msg"
-            send_telegram "[servicios.sh] Servicio ${svc_name} reiniciado correctamente."
+            send_telegram "[Servicios.sh] Servicio ${svc_name} reiniciado correctamente."
         else
             result_msg="Fallo al reiniciar ${svc_name}. Estado actual: $new_status"
-            echo "$result_msg"
+            salida_error "$result_msg"
             log_msg "$result_msg"
-            send_telegram "[servicios.sh] Error reiniciando ${svc_name}: estado ${new_status}"
+            send_telegram "[Servicios.sh] Error reiniciando ${svc_name}: estado ${new_status}"
         fi
     else
         err_msg="Error ejecutando reinicio para ${svc_name}"
-        echo "$err_msg" >&2
+        salida_error "$err_msg"
         log_msg "$err_msg"
-        send_telegram "[servicios.sh] No se pudo ejecutar reinicio de ${svc_name}. Revisa permisos." || true
+        send_telegram "[Servicios.sh] No se pudo ejecutar reinicio de ${svc_name}. Revisa permisos." || true
     fi
 done
 
