@@ -106,7 +106,7 @@ do_backup() {
       local msg="Respaldo generado: $archive | Tamaño: $archive_size | Fecha: $(date --iso-8601=seconds)"
       mensaje_exito "$msg"
       log_msg "$msg"
-      send_telegram "[Respaldo] $msg"
+      send_telegram "[Respaldo.sh] $msg"
       return 0
     fi
   fi
