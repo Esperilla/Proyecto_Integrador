@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-
+source "${0%/*}"/mensajes.sh
 ###############################################################################
 # respaldo.sh
 # Script para comprimir uno o más directorios con tar, verificar el respaldo,
@@ -23,17 +23,17 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "No se encontró config.txt, crea $CONFIG_FILE"
+  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
-  echo "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
 fi
 if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
-  echo "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
 log_init() {
@@ -78,12 +78,12 @@ parse_sources() {
 validate_sources() {
   local src
   if ! parse_sources; then
-    echo "BACKUP_SOURCE_DIRS está vacío en config.txt"
+    mensaje_advertencia "BACKUP_SOURCE_DIRS está vacío en config.txt"
     return 1
   fi
   for src in "${BACKUP_SOURCES[@]}"; do
     if [ ! -d "$src" ]; then
-      echo "No existe el directorio: $src"
+      mensaje_advertencia "No existe el directorio: $src"
       return 1
     fi
   done
@@ -104,7 +104,7 @@ do_backup() {
     if [ -f "$archive" ] && [ -s "$archive" ]; then
       archive_size="$(du -h "$archive" | awk '{print $1}')"
       local msg="Respaldo generado: $archive | Tamaño: $archive_size | Fecha: $(date --iso-8601=seconds)"
-      echo "$msg"
+      mensaje_exito "$msg"
       log_msg "$msg"
       send_telegram "[Respaldo] $msg"
       return 0
@@ -113,14 +113,14 @@ do_backup() {
 
   rm -f "$archive" 2>/dev/null || true
   log_msg "RESPALDO FALLIDO: no se generó un archivo válido"
-  echo "Error: el archivo comprimido no se generó correctamente."
+  salida_error_error "Error: el archivo comprimido no se generó correctamente."
   return 1
 }
 
 install_cron() {
   local script_path cron_line current_cron
   if ! command -v crontab >/dev/null 2>&1; then
-    echo "crontab no está instalado en este entorno."
+    mensaje_advertencia "crontab no está instalado en este entorno."
     return 1
   fi
 
@@ -132,14 +132,14 @@ install_cron() {
 
   printf '%s\n%s\n' "$current_cron" "$cron_line" | sed '/^$/d' | crontab -
   log_msg "Cron instalado para ejecutar respaldo: $cron_line"
-  echo "Cron configurado correctamente para el usuario actual."
+  mensaje_exito "Cron configurado correctamente para el usuario actual."
 }
 
 show_config() {
-  echo "Directorio destino: $BACKUP_DEST_DIR"
-  echo "Prefix: $BACKUP_PREFIX"
-  echo "Cron: $CRON_SCHEDULE"
-  echo "Origenes: ${BACKUP_SOURCE_DIRS:-<vacío>}"
+  mensaje_info "Directorio destino: $BACKUP_DEST_DIR"
+  mensaje_info "Prefix: $BACKUP_PREFIX"
+  mensaje_info "Cron: $CRON_SCHEDULE"
+  mensaje_info "Origenes: ${BACKUP_SOURCE_DIRS:-<vacío>}"
 }
 
 menu() {
