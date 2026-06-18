@@ -1,5 +1,5 @@
 services:
-  debian-lab:
+  cliente:
     build: .
     container_name: proyecto_admon_cliente
     networks:
@@ -13,9 +13,9 @@ services:
     restart: always
     privileged: true
 
-  debian-lab2:
+  servidor1:
     build: .
-    container_name: proyecto_admon_servidor
+    container_name: proyecto_admon_servidor1
     networks:
       redProyecto:
         ipv4_address: 172.20.0.5
@@ -24,9 +24,9 @@ services:
     restart: always
     privileged: true
 
-  debian-lab3:
+  servidor2:
     build: .
-    container_name: proyecto_admon_servidor1
+    container_name: proyecto_admon_servidor2  
     networks:
       redProyecto:
         ipv4_address: 172.20.0.6
@@ -35,9 +35,9 @@ services:
     restart: always
     privileged: true    
 
-  debian-lab4:
+  servidor3:
     build: .
-    container_name: proyecto_admon_servidor2
+    container_name: proyecto_admon_servidor3
     networks:
       redProyecto:
         ipv4_address: 172.20.0.7
