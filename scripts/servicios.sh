@@ -12,6 +12,8 @@ CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+SERVICES="ssh nginx mysql"
+
 if [ ! -f "$CONFIG_FILE" ]; then
   CONFIG_FILE="$PWD/config.txt"
 fi
@@ -19,6 +21,15 @@ fi
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
+fi
+
+source "$CONFIG_FILE"
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
+  echo "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
+  echo "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
 log_init() {
@@ -66,11 +77,6 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     usage
     exit 0
 fi
-
-TELEGRAM_BOT_TOKEN=$(grep -E '^TELEGRAM_BOT_TOKEN=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
-TELEGRAM_CHAT_ID=$(grep -E '^TELEGRAM_CHAT_ID=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
-LOG_FILE=$(grep -E '^LOG_FILE=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
-SERVICES=$(grep -E '^SERVICES=' "$CONFIG_FILE" | sed -E 's/^[^=]*=[ \t]*"?([^"]*)"?.*/\1/' | tr -d '\r')
 
 if [ -z "$SERVICES" ]; then
     echo "La variable SERVICES no está definida en $CONFIG_FILE." >&2
