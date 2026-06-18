@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-
+source "${0%/*}"/mensajes.sh
 ###############################################################################
 # monitoreo.sh
 # Monitoreo de uso de CPU y disco, registra lecturas y alerta por Telegram
@@ -25,17 +25,17 @@ if [ ! -f "$CONFIG_FILE" ]; then
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "No se encontró config.txt"
+  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
-  echo "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
 fi
 if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
-  echo "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
 log_init() {
@@ -53,7 +53,7 @@ log_msg() {
   ts="$(date --iso-8601=seconds)"
   msg="$1"
   echo "$ts - $msg" >> "$LOG_FILE"
-  echo "$ts - $msg"
+  mensaje_info "$ts - $msg"
 }
 
 send_telegram() {
@@ -97,7 +97,7 @@ parse_args() {
         RUN_ONCE=1; shift 1 ;;
       --help|-h)
         usage; exit 0 ;;
-      *) echo "Opción inválida: $1"; usage; exit 1 ;;
+      *) mensaje_advertencia "Opción inválida: $1"; usage; exit 1 ;;
     esac
   done
 }
@@ -139,7 +139,7 @@ check_once() {
   msg="CPU: ${pct_cpu}%"
   log_msg "LECTURA: $msg"
   if [ "$pct_cpu" -ge "$CPU_THRESHOLD" ]; then
-    send_telegram "[Monitoreo] Alerta CPU: ${pct_cpu}% >= ${CPU_THRESHOLD}%"
+    send_telegram "[Monitoreo.sh] Alerta CPU: ${pct_cpu}% >= ${CPU_THRESHOLD}%"
     log_msg "ALERTA: CPU ${pct_cpu}% >= ${CPU_THRESHOLD}%"
   fi
 
@@ -148,7 +148,7 @@ check_once() {
     pct_disk=$(disk_usage_percent "$p")
     log_msg "LECTURA: Disco($p): ${pct_disk}%"
     if [ "$pct_disk" -ge "$DISK_THRESHOLD" ]; then
-      send_telegram "[Monitoreo] Alerta Disco $p: ${pct_disk}% >= ${DISK_THRESHOLD}%"
+      send_telegram "[Monitoreo.sh] Alerta Disco $p: ${pct_disk}% >= ${DISK_THRESHOLD}%"
       log_msg "ALERTA: Disco($p) ${pct_disk}% >= ${DISK_THRESHOLD}%"
     fi
   done
@@ -159,8 +159,8 @@ trap 'echo; log_msg "Interrumpido por señal. Saliendo."; exit 0' SIGINT SIGTERM
 main() {
   parse_args "$@"
 
-  if ! [[ "$CPU_THRESHOLD" =~ ^[0-9]+$ ]]; then echo "CPU threshold inválido"; exit 1; fi
-  if ! [[ "$DISK_THRESHOLD" =~ ^[0-9]+$ ]]; then echo "DISK threshold inválido"; exit 1; fi
+  if ! [[ "$CPU_THRESHOLD" =~ ^[0-9]+$ ]]; then salida_error "CPU threshold inválido"; exit 1; fi
+  if ! [[ "$DISK_THRESHOLD" =~ ^[0-9]+$ ]]; then salida_error "DISK threshold inválido"; exit 1; fi
 
   if [ "$RUN_ONCE" -eq 1 ]; then
     check_once
