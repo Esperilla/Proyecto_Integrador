@@ -9,12 +9,35 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
+CURL_BIN="${CURL_BIN:-curl}"
 
 LOG_FILE_DEFAULT="$SCRIPT_DIR/../logs/gestion_automatizada.log"
 LOG_FILE="$LOG_FILE_DEFAULT"
+HOSTS_FILE=""
+LOCAL_SCRIPT=""
+SSH_USER=""
+SSH_PORT="22"
+SSH_KEY=""
+TARGET_DIR="/tmp"
+REPORT_DIR=""
+CONNECT_TIMEOUT="8"
 
 if [ ! -f "$CONFIG_FILE" ]; then
 	CONFIG_FILE="$PWD/config.txt"
+fi
+
+if [ ! -f "$CONFIG_FILE" ]; then
+  echo "No se encontró config.txt, crea $CONFIG_FILE"
+  exit 1
+fi
+
+source "$CONFIG_FILE"
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
+  echo "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
+  echo "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
 timestamp() {
@@ -36,47 +59,18 @@ log_msg() {
 	fi
 }
 
-load_config_value() {
-	local key="$1"
-	local file="$2"
-	if [ ! -f "$file" ]; then
-		return 1
-	fi
-	grep -E "^[[:space:]]*${key}=" "$file" \
-		| tail -n 1 \
-		| sed -E 's/^[^=]*=[[:space:]]*//; s/^"//; s/"$//' \
-		| tr -d '\r'
-}
-
-load_config() {
-	local value
-
-	value="$(load_config_value "LOG_FILE" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then LOG_FILE="$value"; fi
-
-	value="$(load_config_value "REMOTE_HOSTS_FILE" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then HOSTS_FILE="$value"; fi
-
-	value="$(load_config_value "REMOTE_SCRIPT_LOCAL" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then LOCAL_SCRIPT="$value"; fi
-
-	value="$(load_config_value "REMOTE_USER" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then REMOTE_USER="$value"; fi
-
-	value="$(load_config_value "REMOTE_SSH_PORT" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then SSH_PORT="$value"; fi
-
-	value="$(load_config_value "REMOTE_SSH_KEY" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then SSH_KEY="$value"; fi
-
-	value="$(load_config_value "REMOTE_TARGET_DIR" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then REMOTE_TARGET_DIR="$value"; fi
-
-	value="$(load_config_value "REMOTE_REPORT_DIR" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then REPORT_BASE_DIR="$value"; fi
-
-	value="$(load_config_value "REMOTE_CONNECT_TIMEOUT" "$CONFIG_FILE" 2>/dev/null || true)"
-	if [ -n "$value" ]; then CONNECT_TIMEOUT="$value"; fi
+send_telegram() {
+  local text="$1"
+  if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
+    log_msg "ERROR: curl no disponible para notificar: $text"
+    return 1
+  fi
+  if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+    log_msg "AVISO: Telegram no configurado; no se envía notificación: $text"
+    return 1
+  fi
+  "$CURL_BIN" -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
 usage() {
@@ -86,7 +80,7 @@ Uso: $(basename "$0") -f HOSTS_FILE -s LOCAL_SCRIPT [opciones]
 Opciones:
 	-f, --hosts FILE         Archivo de hosts/IPs (uno por linea)
 	-s, --script FILE        Script local a copiar y ejecutar remotamente
-	-u, --user USER          Usuario SSH remoto (default: $USER)
+	-u, --user USER          Usuario SSH remoto (default: $SSH_USER)
 	-p, --port PORT          Puerto SSH (default: 22)
 	-i, --identity FILE      Llave privada SSH
 	-d, --remote-dir DIR     Directorio remoto temporal (default: /tmp)
@@ -95,8 +89,8 @@ Opciones:
 	-h, --help               Mostrar esta ayuda
 
 Tambien puedes definir valores en config.txt:
-	REMOTE_HOSTS_FILE, REMOTE_SCRIPT_LOCAL, REMOTE_USER, REMOTE_SSH_PORT,
-	REMOTE_SSH_KEY, REMOTE_TARGET_DIR, REMOTE_REPORT_DIR, REMOTE_CONNECT_TIMEOUT.
+	HOSTS_FILE, SCRIPT_LOCAL, SSH_USER, SSH_PORT,
+	SSH_KEY, TARGET_DIR, REPORT_DIR, CONNECT_TIMEOUT.
 EOF
 }
 
@@ -129,7 +123,7 @@ parse_args() {
 				shift 2
 				;;
 			-u|--user)
-				REMOTE_USER="${2:-}"
+				SSH_USER="${2:-}"
 				shift 2
 				;;
 			-p|--port)
@@ -141,11 +135,11 @@ parse_args() {
 				shift 2
 				;;
 			-d|--remote-dir)
-				REMOTE_TARGET_DIR="${2:-}"
+				TARGET_DIR="${2:-}"
 				shift 2
 				;;
 			-o|--output-dir)
-				REPORT_BASE_DIR="${2:-}"
+				REPORT_DIR="${2:-}"
 				shift 2
 				;;
 			-t|--timeout)
@@ -193,7 +187,7 @@ write_report() {
 		echo "ESTADO=$status"
 		echo "CODIGO_SALIDA=$exit_code"
 		echo "SCRIPT_LOCAL=$LOCAL_SCRIPT"
-		echo "USUARIO_REMOTO=$REMOTE_USER"
+		echo "USUARIO_REMOTO=$SSH_USER"
 		echo "PUERTO_SSH=$SSH_PORT"
 		echo ""
 		echo "--- SALIDA REMOTA ---"
@@ -223,7 +217,7 @@ copy_and_execute_host() {
 	fi
 
 	remote_name="$(basename "$LOCAL_SCRIPT")"
-	remote_path="$REMOTE_TARGET_DIR/${remote_name%.*}_$$_$(date +%s).sh"
+	remote_path="$TARGET_DIR/${remote_name%.*}_$$_$(date +%s).sh"
 
 	SCP_CMD=(scp -P "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT")
 	SSH_CMD=(ssh -p "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT")
@@ -233,7 +227,7 @@ copy_and_execute_host() {
 		SSH_CMD+=( -i "$SSH_KEY" )
 	fi
 
-	if ! "${SCP_CMD[@]}" "$LOCAL_SCRIPT" "${REMOTE_USER}@${host}:${remote_path}" >/tmp/remoto_scp_$$.log 2>&1; then
+	if ! "${SCP_CMD[@]}" "$LOCAL_SCRIPT" "${SSH_USER}@${host}:${remote_path}" >/tmp/remoto_scp_$$.log 2>&1; then
 		output="$(cat /tmp/remoto_scp_$$.log 2>/dev/null || true)"
 		rm -f /tmp/remoto_scp_$$.log
 		write_report "$host" "$safe_host" "SCP_ERROR" "1" "$output" "$report_file"
@@ -243,7 +237,7 @@ copy_and_execute_host() {
 
 	rm -f /tmp/remoto_scp_$$.log
 
-	output="$(${SSH_CMD[@]} "${REMOTE_USER}@${host}" "bash '$remote_path' 2>&1; rc=\$?; rm -f '$remote_path'; exit \$rc" 2>&1)"
+	output="$(${SSH_CMD[@]} "${SSH_USER}@${host}" "bash '$remote_path' 2>&1; rc=\$?; rm -f '$remote_path'; exit \$rc" 2>&1)"
 	rc=$?
 
 	if [ "$rc" -eq 0 ]; then
@@ -268,6 +262,14 @@ validate_inputs() {
 	fi
 	if [ ! -f "$HOSTS_FILE" ]; then
 		echo "Error: no existe el archivo de hosts: $HOSTS_FILE"
+		exit 1
+	fi
+	if [ -z "$SSH_USER" ]; then
+    	echo "Error: falta usuario SSH (-u)."
+    	exit 1
+	fi
+	if [ -z "$REPORT_DIR" ]; then
+		echo "Error: falta directorio de reportes (-o)."
 		exit 1
 	fi
 
@@ -300,24 +302,11 @@ validate_inputs() {
 	fi
 }
 
-HOSTS_FILE=""
-LOCAL_SCRIPT=""
-REMOTE_USER="$USER"
-SSH_PORT="22"
-SSH_KEY=""
-REMOTE_TARGET_DIR="/tmp"
-REPORT_BASE_DIR="$SCRIPT_DIR/../reportes/remoto"
-CONNECT_TIMEOUT="8"
-
-if [ -f "$CONFIG_FILE" ]; then
-	load_config
-fi
-
 parse_args "$@"
 validate_inputs
 
-mkdir -p "$REPORT_BASE_DIR"
-RUN_REPORT_DIR="$REPORT_BASE_DIR/ejecucion_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$REPORT_DIR"
+RUN_REPORT_DIR="$REPORT_DIR/ejecucion_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RUN_REPORT_DIR"
 
 log_msg "Inicio remoto.sh | hosts=$HOSTS_FILE | script=$LOCAL_SCRIPT | output=$RUN_REPORT_DIR"
@@ -344,6 +333,9 @@ SUMMARY_FILE="$RUN_REPORT_DIR/resumen.txt"
 	echo "FALLOS=$FAIL_COUNT"
 	echo "REPORTES_DIR=$RUN_REPORT_DIR"
 } > "$SUMMARY_FILE"
+
+msg="Remoto.sh finalizado: $OK_COUNT exitos, $FAIL_COUNT fallos. Detalles en $RUN_REPORT_DIR"
+send_telegram "$msg"
 
 log_msg "Fin remoto.sh | total=${#HOSTS[@]} | exitos=$OK_COUNT | fallos=$FAIL_COUNT"
 
