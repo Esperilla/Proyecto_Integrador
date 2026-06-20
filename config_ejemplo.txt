@@ -1,0 +1,74 @@
+# ============================================================================== 
+#                              CONFIGURACIÓN GLOBAL
+# ============================================================================== 
+
+# CONFIGURACIÓN DEL BOT DE TELEGRAM
+TELEGRAM_BOT_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+TELEGRAM_CHAT_ID="xxxxxxxxxx"
+
+# CONFIGURACIÓN DE LOGS
+LOG_FILE="/var/log/gestion_automatizada.log"
+
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE RESPALDOS
+# -----------------------------------------------------------------------------
+# Lista de directorios a respaldar, separados por espacios
+BACKUP_SOURCE_DIRS="/home/supervisor/dir_Prueba1 /home/supervisor/dir_Prueba2"
+
+# Directorio donde se guardarán los archivos comprimidos del respaldo
+BACKUP_DEST_DIR="$HOME/backups"
+
+# Prefijo para el nombre del archivo de respaldo
+BACKUP_PREFIX="respaldo"
+
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE MONITOREO
+# -----------------------------------------------------------------------------
+CPU_THRESHOLD=80
+DISK_THRESHOLD=85
+DISK_PATHS="/,/home"
+
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE SERVICIOS
+# -----------------------------------------------------------------------------
+# Lista de servicios a monitorear, separados por espacios
+SERVICES="ssh cron"
+
+# Programación cron por defecto para el usuario no privilegiado
+CRON_SCHEDULE="0 2 * * *"
+
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE REMOTO
+# -----------------------------------------------------------------------------
+# Archivo con la lista de hosts (uno por línea)
+HOSTS_FILE="/workspace/hosts.txt"
+
+# Script local por defecto a copiar/ejecutar remotamente (ruta relativa o absoluta)
+LOCAL_SCRIPT="/workspace/scripts/holaMundo.sh"
+
+# Usuario SSH a usar para conexiones remotas
+SSH_USER="supervisor"
+
+# Puerto SSH
+SSH_PORT="22"
+
+# Ruta a llave privada SSH opcional (dejar vacía para usar password)
+SSH_KEY="/home/supervisor/.ssh/id_ed25519"
+
+# Directorio remoto temporal donde copiar el script
+TARGET_DIR="/tmp"
+
+# Directorio base donde se almacenarán los reportes generados por remoto.sh
+REPORT_DIR="/workspace/reportes/remoto"
+
+# Timeout de conexión SSH/SCP en segundos
+CONNECT_TIMEOUT="10"
+
+# -----------------------------------------------------------------------------
+# CONFIGURACIÓN DE RED
+# -----------------------------------------------------------------------------
+# Hosts
+NETWORK_HOSTS="172.20.0.5:22,80,443 172.20.0.6:3306 172.20.0.7"
+
+# Puertos críticos
+CRITICAL_PORTS="22 80 443"
