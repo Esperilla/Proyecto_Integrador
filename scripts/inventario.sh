@@ -118,3 +118,98 @@ get_cpu_info() {
     fi
   } >> "$INVENTORY_REPORT"
 }
+
+
+get_memory_info() {
+  {
+    echo ""
+    echo "--- INFORMACIÓN DE MEMORIA RAM ---"
+    
+    # RAM total
+    if [ -f /proc/meminfo ]; then
+      total_kb=$(grep "^MemTotal:" /proc/meminfo | awk '{print $2}')
+      available_kb=$(grep "^MemAvailable:" /proc/meminfo | awk '{print $2}')
+      used_kb=$((total_kb - available_kb))
+      
+      # Convertir a MB/GB
+      total_mb=$((total_kb / 1024))
+      available_mb=$((available_kb / 1024))
+      used_mb=$((used_kb / 1024))
+      
+      echo "RAM Total: ${total_mb} MB ($(echo "scale=2; $total_mb/1024" | bc) GB)"
+      echo "RAM Disponible: ${available_mb} MB ($(echo "scale=2; $available_mb/1024" | bc) GB)"
+      echo "RAM Usada: ${used_mb} MB ($(echo "scale=2; $used_mb/1024" | bc) GB)"
+      
+      # Porcentaje de uso
+      if [ "$total_kb" -gt 0 ]; then
+        percent=$((used_kb * 100 / total_kb))
+        echo "Porcentaje de Uso: ${percent}%"
+      fi
+    fi
+  } >> "$INVENTORY_REPORT"
+}
+
+get_disk_info() {
+  {
+    echo ""
+    echo "--- INFORMACIÓN DE DISCOS Y PARTICIONES ---"
+    echo ""
+    df -h | awk 'NR==1 {next} {
+      printf "%-20s %8s %8s %8s %6s %s\n", 
+      $1, $2, $3, $4, $5, $6
+    }' | {
+      echo "Sistema         Tamaño  Usado Disponible   Uso% Montado"
+      echo "------- ---------- ---------- ------------ ------ --------"
+      cat
+    }
+  } >> "$INVENTORY_REPORT"
+}
+
+main() {
+  report_file_init
+  
+  log_msg "Iniciando recopilación de inventario del sistema"
+  
+  get_hostname_info
+  get_os_info
+  get_cpu_info
+  get_memory_info
+  get_disk_info
+  
+  {
+    echo ""
+    echo "================================================================================"
+    echo "Reporte generado exitosamente"
+    echo "================================================================================"
+  } >> "$INVENTORY_REPORT"
+  
+  log_msg "Reporte de inventario generado: $INVENTORY_REPORT"
+  
+  summary=$(cat <<EOF
+🖥️ *INVENTARIO DEL SISTEMA*
+
+*Hostname:* $(hostname)
+
+*OS:* $(grep "^PRETTY_NAME" /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"' || echo 'No disponible')
+*Kernel:* $(uname -r)
+
+*CPU:* $(grep "model name" /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs || echo 'No disponible')
+*Núcleos:* $(nproc 2>/dev/null || echo 'No disponible')
+
+*RAM Total:* $(grep "^MemTotal:" /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024) "GB"}' || echo 'No disponible')
+*RAM Disponible:* $(grep "^MemAvailable:" /proc/meminfo 2>/dev/null | awk '{print int($2/1024/1024) "GB"}' || echo 'No disponible')
+
+*Reporte completo:* $INVENTORY_REPORT
+EOF
+  )
+  
+  send_telegram "$summary"
+  log_msg "Notificación de inventario enviada a Telegram"
+  
+  echo "✓ Inventario recopilado exitosamente"
+  echo "✓ Reporte guardado en: $INVENTORY_REPORT"
+  cat "$INVENTORY_REPORT"
+  exit 0
+}
+
+main
