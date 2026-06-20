@@ -16,7 +16,7 @@ mensaje_info() {
     echo -e "${AZUL}ℹ $1${NC}"
 }
 
-salida_error() {
+mensaje_error() {
     echo -e "${ROJO}ERROR: $1${NC}" >&2
     exit 1
 }

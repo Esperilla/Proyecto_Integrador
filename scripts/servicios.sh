@@ -12,17 +12,20 @@ CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+# Lista de servicios a revisar, puede redefinirse desde config.txt.
 SERVICES="ssh nginx mysql"
 
+# Intenta ubicar config.txt relativo al script; si no existe, usa el directorio actual.
 if [ ! -f "$CONFIG_FILE" ]; then
   CONFIG_FILE="$PWD/config.txt"
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
+  mensaje_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
+# Cargar configuración.
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
@@ -32,6 +35,7 @@ if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_
   mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
+# Inicializa el archivo de log creando el directorio si hace falta.
 log_init() {
   local dir
   dir="$(dirname "$LOG_FILE")"
@@ -40,6 +44,7 @@ log_init() {
   fi
 }
 
+# Registra eventos con marca de tiempo ISO-8601.
 log_msg() {
   log_init
   local ts msg
@@ -48,6 +53,7 @@ log_msg() {
   echo "$ts - $msg" >> "$LOG_FILE"
 }
 
+# Envía notificaciones a Telegram; si no hay configuración, solo deja rastro en log.
 send_telegram() {
   local text="$1"
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
@@ -62,6 +68,7 @@ send_telegram() {
     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
+# Muestra cómo ejecutar el script y qué variable espera en config.txt.
 usage() {
     cat <<EOF
 Uso: $(basename "$0")
@@ -71,6 +78,7 @@ Opciones:
 EOF
 }
 
+# Permite salir limpio con Ctrl+C o una señal de terminación.
 trap 'log_msg "Script interrumpido"; exit 1' INT TERM
 
 if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
@@ -78,19 +86,23 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     exit 0
 fi
 
+# Si SERVICES quedó vacío, no hay nada que revisar y se detiene con mensaje claro.
 if [ -z "$SERVICES" ]; then
-    salida_error "La variable SERVICES no está definida en $CONFIG_FILE." >&2
-    mensaje_info "Agrega una línea como: SERVICES=\"ssh nginx mysql\"" >&2
+    mensaje_error "La variable SERVICES no está definida en $CONFIG_FILE."
+    mensaje_info "Agrega una línea como: SERVICES=\"ssh nginx mysql\""
     log_msg "SERVICES no definido en config.txt. Abortando."
     exit 1
 fi
 
+# Inicio de la revisión: recorre cada servicio definido y actúa según su estado.
 log_msg "Inicio de revisión de servicios: $SERVICES"
 
 for svc in $SERVICES; do
+  # Normaliza el nombre por si el usuario escribió 'nginx.service'.
     svc_name="$svc"
     svc_name="${svc_name%.service}"
 
+  # Verifica que el servicio exista antes de consultar o reiniciar.
     if ! systemctl list-units --type=service --all | grep -q "${svc_name}.service"; then
         msg="Servicio ${svc_name} no encontrado en systemd"
         mensaje_info "$msg"
@@ -99,6 +111,7 @@ for svc in $SERVICES; do
         continue
     fi
 
+      # Consulta si el servicio ya está activo.
     status=$(systemctl is-active "$svc_name" 2>/dev/null || echo unknown)
     if [ "$status" = "active" ]; then
         msg="Servicio ${svc_name} está activo"
@@ -111,6 +124,7 @@ for svc in $SERVICES; do
     mensaje_advertencia "$msg"
     log_msg "$msg"
 
+    # Construye el comando de reinicio: usa sudo si no se ejecuta como root.
     if [ "$(id -u)" -eq 0 ]; then
         restart_cmd=(systemctl restart "$svc_name")
     else
@@ -121,6 +135,7 @@ for svc in $SERVICES; do
         fi
     fi
 
+      # Tras reiniciar, vuelve a consultar el estado para confirmar el resultado.
     if "${restart_cmd[@]}"; then
         sleep 1
         new_status=$(systemctl is-active "$svc_name" 2>/dev/null || echo unknown)
@@ -131,18 +146,19 @@ for svc in $SERVICES; do
             send_telegram "[Servicios.sh] Servicio ${svc_name} reiniciado correctamente."
         else
             result_msg="Fallo al reiniciar ${svc_name}. Estado actual: $new_status"
-            salida_error "$result_msg"
+            mensaje_error "$result_msg"
             log_msg "$result_msg"
             send_telegram "[Servicios.sh] Error reiniciando ${svc_name}: estado ${new_status}"
         fi
     else
         err_msg="Error ejecutando reinicio para ${svc_name}"
-        salida_error "$err_msg"
+        mensaje_error "$err_msg"
         log_msg "$err_msg"
         send_telegram "[Servicios.sh] No se pudo ejecutar reinicio de ${svc_name}. Revisa permisos." || true
     fi
 done
 
+  # Cierre normal del ciclo de revisión.
 log_msg "Fin de revisión de servicios"
 
 exit 0

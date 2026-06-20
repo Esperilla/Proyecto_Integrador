@@ -12,6 +12,7 @@ CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+# Umbrales de alerta y parámetros del monitoreo (sobrescribibles por argumentos o config.txt).
 CPU_THRESHOLD_DEFAULT=70
 DISK_THRESHOLD_DEFAULT=70
 INTERVAL=60
@@ -20,24 +21,27 @@ CPU_THRESHOLD=${CPU_THRESHOLD_DEFAULT}
 DISK_THRESHOLD=${DISK_THRESHOLD_DEFAULT}
 DISK_PATHS="/"
 
+# Intenta ubicar config.txt relativo al script; si no existe, usa el directorio actual.
 if [ ! -f "$CONFIG_FILE" ]; then
   CONFIG_FILE="$PWD/config.txt"
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
+  mensaje_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
+# Cargar configuración.
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
-  mensaje_advertencia "TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
 fi
 if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
-  mensaje_advertencia "TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
+  mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
+# Inicializa el archivo de log creando el directorio si hace falta.
 log_init() {
   local dir
   dir="$(dirname "$LOG_FILE")"
@@ -47,6 +51,7 @@ log_init() {
   touch "$LOG_FILE" || true
 }
 
+# Registra eventos con marca de tiempo ISO-8601.
 log_msg() {
   log_init
   local ts msg
@@ -56,6 +61,7 @@ log_msg() {
   mensaje_info "$ts - $msg"
 }
 
+# Envía notificaciones a Telegram; si no hay configuración, solo deja rastro en log.
 send_telegram() {
   local text="$1"
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
@@ -70,6 +76,7 @@ send_telegram() {
     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
+# Imprime opciones de línea de comandos disponibles.
 usage() {
   cat <<EOF
 Uso: $0 [--cpu N] [--disk N] [--paths "/ /home"] [--interval S] [--once]
@@ -82,6 +89,7 @@ Uso: $0 [--cpu N] [--disk N] [--paths "/ /home"] [--interval S] [--once]
 EOF
 }
 
+# Procesa argumentos de línea de comandos para sobrescribir valores por defecto.
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -102,9 +110,12 @@ parse_args() {
   done
 }
 
+# Calcula el porcentaje de uso de CPU usando /proc/stat en un intervalo de 1 segundo.
 cpu_usage_percent() {
+  # calcular uso de CPU en un intervalo corto (1s)
   local prev total1 idle1 next total2 idle2 diff_total diff_idle busy pct
   read -r _ prev < <(awk '/^cpu /{print $0}' /proc/stat)
+  # extraer sumas
   total1=0; idle1=0
   for v in $prev; do total1=$((total1+v)); done
   idle1=$(echo $prev | awk '{print $4}')
@@ -124,15 +135,18 @@ cpu_usage_percent() {
   echo "$pct"
 }
 
+# Obtiene el porcentaje de disco usado para una ruta específica.
 disk_usage_percent() {
   local path="$1"
   if [ ! -e "$path" ]; then
     echo "0"
     return
   fi
+  # obtener porcentaje sin %
   df -P "$path" 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}' || echo 0
 }
 
+# Realiza una lectura de CPU y disco, alerta si se superan los umbrales.
 check_once() {
   local cpu disk pct_cpu pct_disk msg
   pct_cpu=$(cpu_usage_percent)
@@ -154,19 +168,23 @@ check_once() {
   done
 }
 
+# Permite salida limpia con Ctrl+C o señales de terminación.
 trap 'echo; log_msg "Interrumpido por señal. Saliendo."; exit 0' SIGINT SIGTERM
 
+# Punto de entrada: procesa argumentos y ejecuta monitoreo una vez o en loop.
 main() {
   parse_args "$@"
 
-  if ! [[ "$CPU_THRESHOLD" =~ ^[0-9]+$ ]]; then salida_error "CPU threshold inválido"; exit 1; fi
-  if ! [[ "$DISK_THRESHOLD" =~ ^[0-9]+$ ]]; then salida_error "DISK threshold inválido"; exit 1; fi
+  # validar umbrales como enteros
+  if ! [[ "$CPU_THRESHOLD" =~ ^[0-9]+$ ]]; then mensaje_error "CPU threshold inválido"; exit 1; fi
+  if ! [[ "$DISK_THRESHOLD" =~ ^[0-9]+$ ]]; then mensaje_error "DISK threshold inválido"; exit 1; fi
 
   if [ "$RUN_ONCE" -eq 1 ]; then
     check_once
     exit 0
   fi
 
+  # loop periódico
   while true; do
     check_once
     sleep "$INTERVAL"

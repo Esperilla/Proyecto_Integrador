@@ -14,19 +14,22 @@ CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+# Parámetros por defecto del respaldo; pueden sobrescribirse desde config.txt o el entorno.
 BACKUP_PREFIX="${BACKUP_PREFIX:-respaldo}"
 BACKUP_DEST_DIR="${BACKUP_DEST_DIR:-$HOME/backups}"
 CRON_SCHEDULE="${CRON_SCHEDULE:-0 2 * * *}"
 
+# Intenta ubicar config.txt relativo al script; si no existe, usa el directorio actual.
 if [ ! -f "$CONFIG_FILE" ]; then
   CONFIG_FILE="$PWD/config.txt"
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
+  mensaje_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
+# Cargar configuración.
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
@@ -36,6 +39,7 @@ if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_
   mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
+# Inicializa el archivo de log creando el directorio si hace falta.
 log_init() {
   local dir
   dir="$(dirname "$LOG_FILE")"
@@ -45,6 +49,7 @@ log_init() {
   touch "$LOG_FILE" || true
 }
 
+# Registra eventos con marca de tiempo ISO-8601.
 log_msg() {
   log_init
   local ts msg
@@ -53,6 +58,7 @@ log_msg() {
   echo "$ts - $msg" >> "$LOG_FILE"
 }
 
+# Envía notificaciones a Telegram; si no hay configuración, solo deja rastro en log.
 send_telegram() {
   local text="$1"
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
@@ -67,6 +73,7 @@ send_telegram() {
     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
+# Convierte la lista de origen del respaldo en un arreglo de Bash.
 parse_sources() {
   local raw_sources="${BACKUP_SOURCE_DIRS:-}"
   if [ -z "$raw_sources" ]; then
@@ -75,6 +82,7 @@ parse_sources() {
   BACKUP_SOURCES=( $raw_sources )
 }
 
+# Verifica que haya orígenes definidos y que todos existan antes de comprimir.
 validate_sources() {
   local src
   if ! parse_sources; then
@@ -89,6 +97,7 @@ validate_sources() {
   done
 }
 
+# Genera el archivo comprimido, valida que exista y registre el resultado.
 do_backup() {
   local ts archive archive_size
   if ! validate_sources; then
@@ -113,10 +122,11 @@ do_backup() {
 
   rm -f "$archive" 2>/dev/null || true
   log_msg "RESPALDO FALLIDO: no se generó un archivo válido"
-  salida_error_error "Error: el archivo comprimido no se generó correctamente."
+  mensaje_error "Error: el archivo comprimido no se generó correctamente."
   return 1
 }
 
+# Instala una entrada de cron para ejecutar el respaldo automáticamente.
 install_cron() {
   local script_path cron_line current_cron
   if ! command -v crontab >/dev/null 2>&1; then
@@ -135,6 +145,7 @@ install_cron() {
   mensaje_exito "Cron configurado correctamente para el usuario actual."
 }
 
+# Muestra en pantalla los valores que usa el script para generar el respaldo.
 show_config() {
   mensaje_info "Directorio destino: $BACKUP_DEST_DIR"
   mensaje_info "Prefix: $BACKUP_PREFIX"
@@ -142,6 +153,7 @@ show_config() {
   mensaje_info "Origenes: ${BACKUP_SOURCE_DIRS:-<vacío>}"
 }
 
+# Menú interactivo para operar el script sin recordar argumentos.
 menu() {
   while true; do
     echo
@@ -161,6 +173,7 @@ menu() {
   done
 }
 
+# Punto de entrada: decide entre argumentos directos o menú interactivo.
 main() {
   case "${1:-}" in
     --backup-now) do_backup ;;

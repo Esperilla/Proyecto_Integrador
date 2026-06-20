@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-
+source "${0%/*}"/mensajes.sh
 ###############################################################################
 # inventario.sh
 # Recopila información del sistema: CPU, RAM, disco, SO y kernel.
@@ -8,35 +8,56 @@ set -euo pipefail
 # Permite ejecución como tarea cron programada.
 ###############################################################################
 
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/../config.txt"
+LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
+CURL_BIN="${CURL_BIN:-curl}"
 
-LOG_FILE_DEFAULT="$SCRIPT_DIR/../logs/gestion_automatizada.log"
-LOG_FILE="$LOG_FILE_DEFAULT"
+# Archivo de salida del inventario y ubicación donde se guardará.
+INVENTORY_REPORT_DIR="/var/log"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+INVENTORY_REPORT="$INVENTORY_REPORT_DIR/inventario_$TIMESTAMP.txt"
+
+# Intenta ubicar config.txt relativo al script; si no existe, usa el directorio actual.
+if [ ! -f "$CONFIG_FILE" ]; then
+  CONFIG_FILE="$PWD/config.txt"
+fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-	CONFIG_FILE="$PWD/config.txt"
+  mensaje_error "No se encontró config.txt, crea $CONFIG_FILE"
+  exit 1
 fi
-timestamp() {
-	date --iso-8601=seconds
-}
 
+# Cargar configuración.
+source "$CONFIG_FILE"
+
+if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
+  mensaje_advertencia "TELEGRAM_BOT_TOKEN no está configurado en $CONFIG_FILE"
+fi
+if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_ID" ]; then
+  mensaje_advertencia "TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
+fi
+
+# Inicializa el archivo de log creando el directorio si hace falta.
 log_init() {
-	local dir
-	dir="$(dirname "$LOG_FILE")"
-	mkdir -p "$dir" 2>/dev/null || true
-	touch "$LOG_FILE" 2>/dev/null || true
+  local dir
+  dir="$(dirname "$LOG_FILE")"
+  if [ ! -d "$dir" ]; then
+    mkdir -p "$dir"
+  fi
+  touch "$LOG_FILE" || true
 }
 
+# Registra eventos con marca de tiempo ISO-8601.
 log_msg() {
-	log_init
-	local msg="$1"
-	if [ -w "$LOG_FILE" ] || [ ! -e "$LOG_FILE" ]; then
-		echo "$(timestamp) - $msg" >> "$LOG_FILE" 2>/dev/null || true
-	fi
+  log_init
+  local ts msg
+  ts="$(date --iso-8601=seconds)"
+  msg="$1"
+  echo "$ts - $msg" >> "$LOG_FILE"
 }
 
+# Envía notificaciones a Telegram; si no hay configuración, solo deja rastro en log.
 send_telegram() {
   local text="$1"
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
@@ -51,6 +72,7 @@ send_telegram() {
     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
+# Crea el archivo de reporte y escribe el encabezado con fecha y host.
 report_file_init() {
   local dir
   dir="$(dirname "$INVENTORY_REPORT")"
@@ -61,10 +83,12 @@ report_file_init() {
     }
   fi
   
+  # Crear encabezado del reporte
   {
     echo "================================================================================"
-    echo "                      REPORTE DE INVENTARIO DEL SISTEMA"
+    mensaje_info "                      REPORTE DE INVENTARIO DEL SISTEMA"
     echo "================================================================================"
+# Información básica para identificar el sistema donde se ejecuta el script.
     echo "Generado: $(date '+%d/%m/%Y %H:%M:%S')"
     echo "Hostname: $(hostname)"
     echo "================================================================================"
@@ -74,16 +98,17 @@ report_file_init() {
 get_hostname_info() {
   {
     echo ""
-    echo "--- INFORMACIÓN BÁSICA DEL SISTEMA ---"
+    mensaje_info "--- INFORMACIÓN BÁSICA DEL SISTEMA ---"
     echo "Hostname: $(hostname)"
     echo "Dominio FQDN: $(hostname -f 2>/dev/null || echo 'No disponible')"
   } >> "$INVENTORY_REPORT"
 }
 
+# Datos del sistema operativo, kernel y arquitectura.
 get_os_info() {
   {
     echo ""
-    echo "--- SISTEMA OPERATIVO ---"
+    mensaje_info "--- SISTEMA OPERATIVO ---"
     if [ -f /etc/os-release ]; then
       grep "^PRETTY_NAME" /etc/os-release | cut -d= -f2 | tr -d '"'
     else
@@ -94,10 +119,11 @@ get_os_info() {
   } >> "$INVENTORY_REPORT"
 }
 
+# Extrae datos de CPU desde /proc/cpuinfo y herramientas disponibles en el sistema.
 get_cpu_info() {
   {
     echo ""
-    echo "--- INFORMACIÓN DE CPU ---"
+    mensaje_info "--- INFORMACIÓN DE CPU ---"
     
     # Modelo de CPU
     if grep -q "model name" /proc/cpuinfo; then
@@ -119,11 +145,11 @@ get_cpu_info() {
   } >> "$INVENTORY_REPORT"
 }
 
-
+# Calcula memoria total, usada y disponible usando /proc/meminfo.
 get_memory_info() {
   {
     echo ""
-    echo "--- INFORMACIÓN DE MEMORIA RAM ---"
+    mensaje_info "--- INFORMACIÓN DE MEMORIA RAM ---"
     
     # RAM total
     if [ -f /proc/meminfo ]; then
@@ -149,15 +175,17 @@ get_memory_info() {
   } >> "$INVENTORY_REPORT"
 }
 
+# Muestra el uso de discos en formato legible para el reporte.
 get_disk_info() {
   {
     echo ""
-    echo "--- INFORMACIÓN DE DISCOS Y PARTICIONES ---"
+    mensaje_info "--- INFORMACIÓN DE DISCOS Y PARTICIONES ---"
     echo ""
     df -h | awk 'NR==1 {next} {
       printf "%-20s %8s %8s %8s %6s %s\n", 
       $1, $2, $3, $4, $5, $6
     }' | {
+      # Agregar encabezado
       echo "Sistema         Tamaño  Usado Disponible   Uso% Montado"
       echo "------- ---------- ---------- ------------ ------ --------"
       cat
@@ -166,25 +194,31 @@ get_disk_info() {
 }
 
 main() {
+  # Inicializa el archivo antes de escribir cualquier sección.
   report_file_init
   
+  # Marca el inicio del proceso en el log.
   log_msg "Iniciando recopilación de inventario del sistema"
   
+  # Recolecta cada bloque de información del sistema.
   get_hostname_info
   get_os_info
   get_cpu_info
   get_memory_info
   get_disk_info
   
+  # Cierra el reporte con un mensaje visual de finalización.
   {
     echo ""
     echo "================================================================================"
-    echo "Reporte generado exitosamente"
+    mensaje_exito "Reporte generado exitosamente"
     echo "================================================================================"
   } >> "$INVENTORY_REPORT"
   
+  # Deja evidencia del archivo generado.
   log_msg "Reporte de inventario generado: $INVENTORY_REPORT"
   
+  # Construye un resumen corto para enviar por Telegram.
   summary=$(cat <<EOF
 🖥️ *INVENTARIO DEL SISTEMA*
 
@@ -203,13 +237,16 @@ main() {
 EOF
   )
   
+  # Envía el resumen y registra que se notificó.
   send_telegram "$summary"
   log_msg "Notificación de inventario enviada a Telegram"
   
-  echo "✓ Inventario recopilado exitosamente"
-  echo "✓ Reporte guardado en: $INVENTORY_REPORT"
+  # Salida final para consola.
+  mensaje_exito "Inventario recopilado exitosamente"
+  mensaje_info "Reporte guardado en: $INVENTORY_REPORT"
   cat "$INVENTORY_REPORT"
   exit 0
 }
 
+# Punto de entrada del script.
 main

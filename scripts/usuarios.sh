@@ -6,7 +6,7 @@ source "${0%/*}"/mensajes.sh
 # Script para crear, eliminar y modificar usuarios del sistema.
 # Lee configuración desde config.txt, valida entradas, registra acciones y
 # notifica a un bot de Telegram por cada acción.
-# Uso: ejecutar como root (sudo).
+# Requiere privilegios de root para modificar usuarios.
 ###############################################################################
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,15 +14,17 @@ CONFIG_FILE="$SCRIPT_DIR/../config.txt"
 LOG_FILE="${LOG_FILE:-/var/log/gestion_automatizada.log}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+# Intenta ubicar config.txt relativo al script; si no existe, usa el directorio actual.
 if [ ! -f "$CONFIG_FILE" ]; then
   CONFIG_FILE="$PWD/config.txt"
 fi
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  salida_error "No se encontró config.txt, crea $CONFIG_FILE"
+  mensaje_error "No se encontró config.txt, crea $CONFIG_FILE"
   exit 1
 fi
 
+# Cargar configuración.
 source "$CONFIG_FILE"
 
 if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ "$TELEGRAM_BOT_TOKEN" = "REPLACE_WITH_BOT_TOKEN" ]; then
@@ -32,6 +34,7 @@ if [ -z "${TELEGRAM_CHAT_ID:-}" ] || [ "$TELEGRAM_CHAT_ID" = "REPLACE_WITH_CHAT_
   mensaje_advertencia "ATENCIÓN: TELEGRAM_CHAT_ID no está configurado en $CONFIG_FILE"
 fi
 
+# Inicializa el archivo de log creando el directorio si hace falta.
 log_init() {
   local dir
   dir="$(dirname "$LOG_FILE")"
@@ -41,6 +44,7 @@ log_init() {
   touch "$LOG_FILE" || true
 }
 
+# Registra eventos con marca de tiempo ISO-8601.
 log_msg() {
   log_init
   local ts msg
@@ -49,6 +53,7 @@ log_msg() {
   echo "$ts - $msg" >> "$LOG_FILE"
 }
 
+# Envía notificaciones a Telegram; si no hay configuración, solo deja rastro en log.
 send_telegram() {
   local text="$1"
   if ! command -v "$CURL_BIN" >/dev/null 2>&1; then
@@ -63,6 +68,7 @@ send_telegram() {
     -d chat_id="${TELEGRAM_CHAT_ID}" -d text="$text" >/dev/null 2>&1 || true
 }
 
+# Verifica existencia del usuario consultando su UID.
 user_exists() {
   local user="$1"
   if id -u "$user" >/dev/null 2>&1; then
@@ -72,6 +78,7 @@ user_exists() {
   fi
 }
 
+# Valida formato de nombre de usuario con una regex segura.
 validate_username() {
   local user="$1"
   if [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; then
@@ -81,6 +88,7 @@ validate_username() {
   fi
 }
 
+# Crea un usuario con home, shell bash y contraseña inicial.
 create_user() {
   read -rp "Nombre de usuario a crear: " username
   if ! validate_username "$username"; then
@@ -95,7 +103,7 @@ create_user() {
   read -rsp "Contraseña inicial: " password
   echo
   if [ -z "$password" ]; then
-    salida_error "Contraseña vacía. Abortando."; return 1
+    mensaje_error "Contraseña vacía. Abortando."; return 1
   fi
   useradd -m -c "$fullname" -s /bin/bash "$username"
   echo "$username:$password" | chpasswd
@@ -106,10 +114,11 @@ create_user() {
     send_telegram "[Usuarios.sh] $msg"
     return 0
   else
-    salida_error "Error al crear el usuario."; return 1
+    mensaje_error "Error al crear el usuario."; return 1
   fi
 }
 
+# Elimina un usuario y su home tras confirmación explícita.
 delete_user() {
   read -rp "Nombre de usuario a eliminar: " username
   if ! user_exists "$username"; then
@@ -118,7 +127,8 @@ delete_user() {
   fi
   read -rp "CONFIRME eliminación de $username (escriba 'si'): " confirm
   if [ "$confirm" != "si" ]; then
-    mensaje_advertencia "Eliminación cancelada."; return 1
+    mensaje_advertencia "Eliminación cancelada."
+    return 1
   fi
   userdel -r "$username" >/dev/null 2>&1 || true
   local msg="Usuario eliminado: $username"
@@ -127,6 +137,7 @@ delete_user() {
   send_telegram "[Usuarios.sh] $msg"
 }
 
+# Modifica datos del usuario: shell, GECOS, contraseña y membresía en grupos.
 modify_user() {
   read -rp "Nombre de usuario a modificar: " username
   if ! user_exists "$username"; then
@@ -154,7 +165,7 @@ modify_user() {
       ;;
     3)
       read -rsp "Nueva contraseña: " newpass; echo
-      if [ -z "$newpass" ]; then salida_error "Contraseña vacía. Abortando."; return 1; fi
+      if [ -z "$newpass" ]; then mensaje_error "Contraseña vacía. Abortando."; return 1; fi
       echo "$username:$newpass" | chpasswd
       msg="Contraseña cambiada para $username"
       ;;
@@ -165,9 +176,9 @@ modify_user() {
       ;;
     5)
       read -rp "Grupos a quitar (coma-separados): " delgr
-      # Reemplazamos la lista actual por una nueva sin los grupos indicados
+      # Reconstruye la lista de grupos manteniendo solo los que no se quieren quitar.
       current_groups=$(id -nG "$username" | tr ' ' ',')
-      # construir nueva lista excluyendo los indicados
+      # Construye la nueva lista excluyendo los grupos indicados.
       IFS=',' read -ra keep <<<"$current_groups"
       IFS=',' read -ra rem <<<"$delgr"
       newlist=""
@@ -193,13 +204,16 @@ modify_user() {
   send_telegram "[Usuarios.sh] $msg"
 }
 
+# Muestra todos los logins registrados en /etc/passwd.
 list_users() {
   mensaje_info "Usuarios del sistema (login):"
   cut -d: -f1 /etc/passwd
 }
 
+# Permite salida limpia con Ctrl+C o señales de terminación.
 trap 'echo; echo "Saliendo..."; exit 0' SIGINT SIGTERM
 
+# Menú principal con verificación de privilegios root y bucle interactivo.
 main_menu() {
   if [ "$EUID" -ne 0 ]; then
     mensaje_info "Este script debe ejecutarse como root. Use sudo."; exit 1
