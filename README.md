@@ -3,13 +3,13 @@
 **Ingeniería en Ciberseguridad e Infraestructura de Cómputo**
 *Programación para Administración de Servicios*
 
-Sistema automatizado mediante scripts en Bash para la gestión integral de servicios en sistemas GNU/Linux. Cubre gestión de usuarios, respaldos automáticos, monitoreo de recursos (CPU/disco), supervisión de servicios con `systemd`, monitoreo de red (ping y puertos) y ejecución remota de scripts vía SSH/SCP. Todas las operaciones se registran en una bitácora centralizada y envían notificaciones en tiempo real a un bot de Telegram.
+Sistema automatizado mediante scripts en Bash para la gestión integral de servicios en sistemas GNU/Linux. Cubre gestión de usuarios, respaldos automáticos, monitoreo de recursos (CPU/disco), supervisión de servicios con `systemd`, ejecución remota de scripts vía SSH/SCP, monitoreo de red (ping y puertos) e inventario del sistema. Todas las operaciones se registran en una bitácora centralizada y envían notificaciones en tiempo real a un bot de Telegram.
 
 ---
 
 ## 🚀 Arquitectura y Entorno de Pruebas
 
-El proyecto utiliza un laboratorio multi-contenedor basado en Docker con red interna estática para simular un entorno de administración real.
+El proyecto utiliza un laboratorio multi-contenedor basado en Docker con una red interna estática para simular un entorno de administración real.
 
 ### Infraestructura
 
@@ -17,12 +17,12 @@ El proyecto utiliza un laboratorio multi-contenedor basado en Docker con red int
 
 - **`docker-compose.yml`**: Define 4 contenedores interconectados en la red `redProyecto` (`172.20.0.0/16`):
 
-  | Contenedor | Nombre | IP | Rol |
+  | Servicio | Contenedor | IP | Rol |
   |---|---|---|---|
-  | `debian-lab` | `proyecto_admon_cliente` | `172.20.0.2` | Cliente principal (monta `/workspace`) |
-  | `debian-lab2` | `proyecto_admon_servidor` | `172.20.0.5` | Servidor remoto 1 |
-  | `debian-lab3` | `proyecto_admon_servidor1` | `172.20.0.6` | Servidor remoto 2 |
-  | `debian-lab4` | `proyecto_admon_servidor2` | `172.20.0.7` | Servidor remoto 3 |
+  | `cliente` | `proyecto_admon_cliente` | `172.20.0.2` | Cliente principal (monta `/workspace`) |
+  | `servidor1` | `proyecto_admon_servidor1` | `172.20.0.5` | Servidor remoto 1 |
+  | `servidor2` | `proyecto_admon_servidor2` | `172.20.0.6` | Servidor remoto 2 |
+  | `servidor3` | `proyecto_admon_servidor3` | `172.20.0.7` | Servidor remoto 3 |
 
   Todos los contenedores corren en modo **privilegiado** con acceso a cgroups para soportar `systemd`.
 
@@ -34,11 +34,11 @@ El proyecto utiliza un laboratorio multi-contenedor basado en Docker con red int
    ```
 2. Entrar al contenedor cliente:
    ```bash
-   docker compose exec debian-lab bash
+   docker compose exec cliente bash
    ```
 3. Entrar a un servidor remoto (ejemplo):
    ```bash
-   docker compose exec debian-lab2 bash
+   docker compose exec servidor1 bash
    ```
 
 ---
@@ -54,9 +54,22 @@ Archivo de configuración central que unifica las variables utilizadas por todos
 | **Respaldos** | `BACKUP_SOURCE_DIRS`, `BACKUP_DEST_DIR`, `BACKUP_PREFIX` |
 | **Monitoreo** | `CPU_THRESHOLD`, `DISK_THRESHOLD`, `DISK_PATHS` |
 | **Servicios** | `SERVICES` (lista de servicios systemd a monitorear) |
-| **Remoto** | `REMOTE_HOSTS_FILE`, `REMOTE_SCRIPT_LOCAL`, `REMOTE_USER`, `REMOTE_SSH_PORT`, `REMOTE_SSH_KEY`, `REMOTE_TARGET_DIR`, `REMOTE_REPORT_DIR`, `REMOTE_CONNECT_TIMEOUT` |
-| **Red** | `NETWORK_HOSTS` (formato `IP:puerto1,puerto2`), `CRITICAL_PORTS` |
 | **Cron** | `CRON_SCHEDULE` |
+| **Remoto** | `HOSTS_FILE`, `LOCAL_SCRIPT`, `SSH_USER`, `SSH_PORT`, `SSH_KEY`, `TARGET_DIR`, `REPORT_DIR`, `CONNECT_TIMEOUT` |
+| **Red** | `NETWORK_HOSTS` (formato `IP:puerto1,puerto2`), `CRITICAL_PORTS` |
+
+---
+
+## 🎨 Librería de Mensajes (`scripts/mensajes.sh`)
+
+Librería compartida que proporciona funciones de salida con colores ANSI para la terminal. Todos los scripts principales la importan con `source mensajes.sh`.
+
+| Función | Color | Uso |
+|---|---|---|
+| `mensaje_exito` | 🟢 Verde | Operaciones completadas correctamente |
+| `mensaje_info` | 🔵 Azul | Información general y datos del proceso |
+| `mensaje_advertencia` | 🟡 Amarillo | Advertencias no fatales |
+| `mensaje_error` | 🔴 Rojo | Errores críticos (escribe en `stderr` y termina el script) |
 
 ---
 
@@ -78,7 +91,7 @@ Administración interactiva de usuarios del sistema. Requiere privilegios de sup
 - **Menú interactivo** (`sudo ./usuarios.sh`):
   1. **Crear usuario** — con directorio home, GECOS y contraseña inicial.
   2. **Eliminar usuario** — eliminación segura con `userdel -r` tras confirmación.
-  3. **Modificar usuario** — submenú con opciones: cambiar shell, GECOS, contraseña, añadir/quitar grupos.
+  3. **Modificar usuario** — submenú: cambiar shell, GECOS, contraseña, añadir/quitar grupos.
   4. **Listar usuarios** — muestra los usuarios del sistema.
   5. **Salir**.
 
@@ -111,7 +124,7 @@ Automatiza la compresión de directorios con `tar`, verifica los resultados y pr
 Monitorea el uso de CPU y disco, registra cada lectura y envía alertas por Telegram al superar los umbrales.
 
 - **Características**:
-  - Lectura de CPU mediante muestreo de `/proc/stat` (cálculo de porcentaje real).
+  - Lectura de CPU mediante muestreo de `/proc/stat` (cálculo de porcentaje real en intervalo de 1 segundo).
   - Lectura de disco con `df` para múltiples particiones.
   - Umbrales configurables vía `config.txt` o argumentos CLI (por defecto 70%).
   - Modo ejecución única (`--once`, por defecto) o modo continuo (`--interval`).
@@ -135,7 +148,8 @@ Monitorea el uso de CPU y disco, registra cada lectura y envía alertas por Tele
 Revisa el estado de servicios `systemd`, reinicia automáticamente los inactivos y notifica los resultados.
 
 - **Características**:
-  - Lee la lista de servicios desde `config.txt` (variable `SERVICES`) mediante parsing directo con `grep`/`sed`.
+  - Lee la lista de servicios desde `config.txt` (variable `SERVICES`).
+  - Normaliza nombres de servicio (remueve `.service` si se incluye).
   - Verifica existencia de cada servicio en `systemd` antes de consultar su estado.
   - Reinicio automático con `systemctl restart` (usa `sudo` si no es root).
   - Verificación post-reinicio y reporte de éxito o fallo.
@@ -153,13 +167,14 @@ Revisa el estado de servicios `systemd`, reinicia automáticamente los inactivos
 Copia un script local a hosts remotos por SCP, lo ejecuta por SSH y genera reportes individuales por host.
 
 - **Características**:
-  - Lee hosts desde un archivo externo (uno por línea, soporta comentarios `#`).
+  - Lee hosts desde un archivo externo (`hosts.txt`, uno por línea, soporta comentarios `#`).
   - Copia el script vía `scp` y lo ejecuta remotamente vía `ssh` en modo batch (`BatchMode=yes`).
   - Limpieza automática del script remoto tras la ejecución.
-  - Soporte para autenticación por llave SSH o contraseña.
+  - Soporte para autenticación por llave SSH.
   - Validación de formato de host, existencia de archivos y parámetros numéricos.
   - Genera un reporte individual por cada host con: estado, código de salida, timestamp y salida remota.
-  - Genera un archivo resumen con totales de éxitos y fallos.
+  - Genera un archivo `resumen.txt` con totales de éxitos y fallos.
+  - Notificación por Telegram al finalizar con el resumen de ejecución.
   - Timeout de conexión configurable.
 - **Argumentos CLI**:
   - `-f, --hosts FILE` — Archivo de hosts/IPs.
@@ -172,8 +187,7 @@ Copia un script local a hosts remotos por SCP, lo ejecuta por SSH y genera repor
   - `-t, --timeout SEG` — Timeout de conexión en segundos.
 - **Ejemplo**:
   ```bash
-  ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/holaMundo.sh
-  ./remoto.sh -f hosts.txt -s script.sh -u supervisor -i ~/.ssh/id_ed25519
+  ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/holaMundo.sh -u supervisor -o /workspace/reportes/remoto
   ```
 
 ---
@@ -196,10 +210,35 @@ Verifica la conectividad de hosts mediante `ping` y verifica puertos con `nc` (n
 - **Argumentos CLI**:
   - `--check` — Ejecutar monitoreo directamente.
   - `--show-config` — Mostrar configuración de red.
-- **Ejemplo**:
+
+---
+
+### 7. Inventario del Sistema — `scripts/inventario.sh`
+
+Recopila información detallada del hardware y software del sistema, genera un reporte en texto plano y envía un resumen por Telegram.
+
+- **Información recopilada**:
+  - **Sistema**: Hostname, FQDN, sistema operativo (desde `/etc/os-release`), versión del kernel y arquitectura.
+  - **CPU**: Modelo (desde `/proc/cpuinfo`), número de núcleos lógicos (`nproc`) y frecuencia en MHz.
+  - **Memoria RAM**: Total, disponible y usada (desde `/proc/meminfo`) con conversión a MB y GB, y porcentaje de uso.
+  - **Discos**: Uso de disco por partición en formato legible (`df -h`).
+- **Salida**:
+  - Reporte guardado en `/var/log/inventario_FECHA.txt` con formato legible y encabezados visuales.
+  - Resumen enviado por Telegram con datos clave del inventario.
+  - Registro de la operación en la bitácora central.
+- **Modo de uso**:
   ```bash
-  ./red.sh --check
+  ./inventario.sh
   ```
+
+---
+
+## 📁 Archivos Auxiliares
+
+| Archivo | Descripción |
+|---|---|
+| `hosts.txt` | Lista de IPs de servidores remotos para `remoto.sh` (actualmente `172.20.0.5` y `172.20.0.7`). |
+| `scripts/holaMundo.sh` | Script de prueba para validar la ejecución remota con `remoto.sh`. |
 
 ---
 
