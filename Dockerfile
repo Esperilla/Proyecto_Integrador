@@ -48,7 +48,7 @@ RUN mkdir -p /home/supervisor/dir_Prueba2 && touch /home/supervisor/dir_Prueba2/
 
 # Crear el directorio de logs
 RUN mkdir -p /var/log && touch /var/log/gestion_automatizada.log && \
-    chown supervisor:supervisor /var/log/gestion_automatizada.log
+    chown supervisor:supervisor /var/log && chown supervisor:supervisor /var/log/gestion_automatizada.log
 
 
 # Configurar el directorio de trabajo donde se montarán los scripts
