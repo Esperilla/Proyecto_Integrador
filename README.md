@@ -259,7 +259,7 @@ Para usar `remoto.sh` entre los contenedores del laboratorio, es necesario gener
 
 ```bash
 # En el contenedor cliente (172.20.0.2)
-ssh-keygen -t ed25519 -f /home/supervisor/.ssh/id_ed25519 -N ""
+ssh-keygen -t ed25519 -C "supervisor"
 ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.5
 ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.6
 ssh-copy-id -i /home/supervisor/.ssh/id_ed25519 supervisor@172.20.0.7
