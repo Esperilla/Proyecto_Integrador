@@ -219,6 +219,10 @@ local safe_host
 local report_file
 local remote_name
 local remote_path
+# Variables locales para paths y comandos SCP/SSH
+local remote_config_path
+local local_config_path
+local local_messages_path
 local output
 local rc
 
@@ -233,6 +237,9 @@ fi
 
 remote_name="$(basename "$LOCAL_SCRIPT")"
 remote_path="$TARGET_DIR/${remote_name%.*}_$$_$(date +%s).sh"
+remote_config_path="$TARGET_DIR/config.txt"
+local_config_path="$SCRIPT_DIR/../config.txt"
+local_messages_path="$(dirname "$LOCAL_SCRIPT")/mensajes.sh"
 
 # Define los comandos SSH/SCP con timeout y autenticación opcional por llave.
 SCP_CMD=(scp -P "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout="$CONNECT_TIMEOUT")
@@ -254,9 +261,34 @@ fi
 
 rm -f /tmp/remoto_scp_$$.log
 
+# Copia config.txt y mensajes.sh si existen, para que el script remoto pueda usarlos.
+if [ -f "$local_messages_path" ]; then
+if ! "${SCP_CMD[@]}" "$local_messages_path" "${SSH_USER}@${host}:${TARGET_DIR}/mensajes.sh" >/tmp/remoto_scp_$$.log 2>&1; then
+output="$(cat /tmp/remoto_scp_$$.log 2>/dev/null || true)"
+rm -f /tmp/remoto_scp_$$.log
+write_report "$host" "$safe_host" "SCP_ERROR" "1" "$output" "$report_file"
+FAIL_COUNT=$((FAIL_COUNT + 1))
+return
+fi
+rm -f /tmp/remoto_scp_$$.log
+fi
+# Copia config.txt si existe, para que el script remoto pueda usarlo.
+if [ -f "$local_config_path" ]; then
+if ! "${SCP_CMD[@]}" "$local_config_path" "${SSH_USER}@${host}:${remote_config_path}" >/tmp/remoto_scp_$$.log 2>&1; then
+output="$(cat /tmp/remoto_scp_$$.log 2>/dev/null || true)"
+rm -f /tmp/remoto_scp_$$.log
+write_report "$host" "$safe_host" "SCP_ERROR" "1" "$output" "$report_file"
+FAIL_COUNT=$((FAIL_COUNT + 1))
+return
+fi
+rm -f /tmp/remoto_scp_$$.log
+fi
+
 # Ejecuta el script remoto, captura su salida y limpia el archivo temporal al terminar.
-output="$(${SSH_CMD[@]} "${SSH_USER}@${host}" "bash '$remote_path' 2>&1; rc=\$?; rm -f '$remote_path'; exit \$rc" 2>&1)"
+set +e
+output="$(${SSH_CMD[@]} "${SSH_USER}@${host}" "cd '$TARGET_DIR' && bash '$remote_path' 2>&1; rc=\$?; rm -f '$remote_path'; exit \$rc" 2>&1)"
 rc=$?
+set -e
 
 if [ "$rc" -eq 0 ]; then
 write_report "$host" "$safe_host" "OK" "$rc" "$output" "$report_file"
