@@ -164,28 +164,36 @@ Revisa el estado de servicios `systemd`, reinicia automáticamente los inactivos
 
 ### 5. Ejecución Remota — `scripts/remoto.sh`
 
-Copia un script local a hosts remotos por SCP, lo ejecuta por SSH y genera reportes individuales por host.
+Copia un script local y sus dependencias a hosts remotos por SCP, lo ejecuta por SSH y genera reportes individuales por host.
 
-- **Características**:
-  - Lee hosts desde un archivo externo (`hosts.txt`, uno por línea, soporta comentarios `#`).
-  - Copia el script vía `scp` y lo ejecuta remotamente vía `ssh` en modo batch (`BatchMode=yes`).
-  - Limpieza automática del script remoto tras la ejecución.
-  - Soporte para autenticación por llave SSH.
-  - Validación de formato de host, existencia de archivos y parámetros numéricos.
-  - Genera un reporte individual por cada host con: estado, código de salida, timestamp y salida remota.
-  - Genera un archivo `resumen.txt` con totales de éxitos y fallos.
-  - Notificación por Telegram al finalizar con el resumen de ejecución.
-  - Timeout de conexión configurable.
-- **Argumentos CLI**:
-  - `-f, --hosts FILE` — Archivo de hosts/IPs.
-  - `-s, --script FILE` — Script local a copiar y ejecutar.
-  - `-u, --user USER` — Usuario SSH remoto.
-  - `-p, --port PORT` — Puerto SSH (por defecto 22).
-  - `-i, --identity FILE` — Llave privada SSH.
-  - `-d, --remote-dir DIR` — Directorio remoto temporal (por defecto `/tmp`).
-  - `-o, --output-dir DIR` — Directorio base de reportes.
-  - `-t, --timeout SEG` — Timeout de conexión en segundos.
-- **Ejemplo**:
+* **Características**:
+
+  * Lee hosts desde un archivo externo (`hosts.txt`, uno por línea, soporta comentarios `#`).
+  * Copia mediante `scp` el script a ejecutar al host remoto.
+  * Copia automáticamente los archivos auxiliares `config.txt` y `mensajes.sh` cuando están disponibles.
+  * Ejecuta el script remotamente vía `ssh` en modo batch (`BatchMode=yes`).
+  * Limpieza automática del script remoto tras la ejecución.
+  * Soporte para autenticación por llave SSH.
+  * Validación de formato de host, existencia de archivos y parámetros numéricos.
+  * Genera un reporte individual por cada host con: estado, código de salida, timestamp y salida remota.
+  * Genera un archivo `resumen.txt` con totales de éxitos y fallos.
+  * Notificación por Telegram al finalizar con el resumen de ejecución.
+  * Timeout de conexión configurable.
+  * Permite ejecutar scripts que dependen de la configuración compartida del proyecto sin requerir configuración previa en el host remoto.
+
+* **Argumentos CLI**:
+
+  * `-f, --hosts FILE` — Archivo de hosts/IPs.
+  * `-s, --script FILE` — Script local a copiar y ejecutar.
+  * `-u, --user USER` — Usuario SSH remoto.
+  * `-p, --port PORT` — Puerto SSH (por defecto 22).
+  * `-i, --identity FILE` — Llave privada SSH.
+  * `-d, --remote-dir DIR` — Directorio remoto temporal (por defecto `/tmp`).
+  * `-o, --output-dir DIR` — Directorio base de reportes.
+  * `-t, --timeout SEG` — Timeout de conexión en segundos.
+
+* **Ejemplo**:
+
   ```bash
   ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/holaMundo.sh -u supervisor -o /workspace/reportes/remoto
   ```
