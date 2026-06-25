@@ -1,7 +1,7 @@
 # Proyecto Integrador — Gestor Automatizado de Servicios con Notificación por Telegram
 
 **Ingeniería en Ciberseguridad e Infraestructura de Cómputo**
-*Programación para Administración de Servicios*
+_Programación para Administración de Servicios_
 
 Sistema automatizado mediante scripts en Bash para la gestión integral de servicios en sistemas GNU/Linux. Cubre gestión de usuarios, respaldos automáticos, monitoreo de recursos (CPU/disco), supervisión de servicios con `systemd`, ejecución remota de scripts vía SSH/SCP, monitoreo de red (ping y puertos) e inventario del sistema. Todas las operaciones se registran en una bitácora centralizada y envían notificaciones en tiempo real a un bot de Telegram.
 
@@ -17,12 +17,12 @@ El proyecto utiliza un laboratorio multi-contenedor basado en Docker con una red
 
 - **`docker-compose.yml`**: Define 4 contenedores interconectados en la red `redProyecto` (`172.20.0.0/16`):
 
-  | Servicio | Contenedor | IP | Rol |
-  |---|---|---|---|
-  | `cliente` | `proyecto_admon_cliente` | `172.20.0.2` | Cliente principal (monta `/workspace`) |
-  | `servidor1` | `proyecto_admon_servidor1` | `172.20.0.5` | Servidor remoto 1 |
-  | `servidor2` | `proyecto_admon_servidor2` | `172.20.0.6` | Servidor remoto 2 |
-  | `servidor3` | `proyecto_admon_servidor3` | `172.20.0.7` | Servidor remoto 3 |
+  | Servicio    | Contenedor                 | IP           | Rol                                    |
+  | ----------- | -------------------------- | ------------ | -------------------------------------- |
+  | `cliente`   | `proyecto_admon_cliente`   | `172.20.0.2` | Cliente principal (monta `/workspace`) |
+  | `servidor1` | `proyecto_admon_servidor1` | `172.20.0.5` | Servidor remoto 1                      |
+  | `servidor2` | `proyecto_admon_servidor2` | `172.20.0.6` | Servidor remoto 2                      |
+  | `servidor3` | `proyecto_admon_servidor3` | `172.20.0.7` | Servidor remoto 3                      |
 
   Todos los contenedores corren en modo **privilegiado** con acceso a cgroups para soportar `systemd`.
 
@@ -47,16 +47,16 @@ El proyecto utiliza un laboratorio multi-contenedor basado en Docker con una red
 
 Archivo de configuración central que unifica las variables utilizadas por todos los scripts. Está organizado en las siguientes secciones:
 
-| Sección | Variables |
-|---|---|
-| **Telegram** | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` |
-| **Logs** | `LOG_FILE` (por defecto `/var/log/gestion_automatizada.log`) |
-| **Respaldos** | `BACKUP_SOURCE_DIRS`, `BACKUP_DEST_DIR`, `BACKUP_PREFIX` |
-| **Monitoreo** | `CPU_THRESHOLD`, `DISK_THRESHOLD`, `DISK_PATHS` |
-| **Servicios** | `SERVICES` (lista de servicios systemd a monitorear) |
-| **Cron** | `CRON_SCHEDULE` |
-| **Remoto** | `HOSTS_FILE`, `LOCAL_SCRIPT`, `SSH_USER`, `SSH_PORT`, `SSH_KEY`, `TARGET_DIR`, `REPORT_DIR`, `CONNECT_TIMEOUT` |
-| **Red** | `NETWORK_HOSTS` (formato `IP:puerto1,puerto2`), `CRITICAL_PORTS` |
+| Sección       | Variables                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------- |
+| **Telegram**  | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`                                                                       |
+| **Logs**      | `LOG_FILE` (por defecto `/var/log/gestion_automatizada.log`)                                                   |
+| **Respaldos** | `BACKUP_SOURCE_DIRS`, `BACKUP_DEST_DIR`, `BACKUP_PREFIX`                                                       |
+| **Monitoreo** | `CPU_THRESHOLD`, `DISK_THRESHOLD`, `DISK_PATHS`                                                                |
+| **Servicios** | `SERVICES` (lista de servicios systemd a monitorear)                                                           |
+| **Cron**      | `CRON_SCHEDULE`                                                                                                |
+| **Remoto**    | `HOSTS_FILE`, `LOCAL_SCRIPT`, `SSH_USER`, `SSH_PORT`, `SSH_KEY`, `TARGET_DIR`, `REPORT_DIR`, `CONNECT_TIMEOUT` |
+| **Red**       | `NETWORK_HOSTS` (formato `IP:puerto1,puerto2`), `CRITICAL_PORTS`                                               |
 
 ---
 
@@ -64,12 +64,12 @@ Archivo de configuración central que unifica las variables utilizadas por todos
 
 Librería compartida que proporciona funciones de salida con colores ANSI para la terminal. Todos los scripts principales la importan con `source mensajes.sh`.
 
-| Función | Color | Uso |
-|---|---|---|
-| `mensaje_exito` | 🟢 Verde | Operaciones completadas correctamente |
-| `mensaje_info` | 🔵 Azul | Información general y datos del proceso |
-| `mensaje_advertencia` | 🟡 Amarillo | Advertencias no fatales |
-| `mensaje_error` | 🔴 Rojo | Errores críticos (escribe en `stderr` y termina el script) |
+| Función               | Color       | Uso                                                        |
+| --------------------- | ----------- | ---------------------------------------------------------- |
+| `mensaje_exito`       | 🟢 Verde    | Operaciones completadas correctamente                      |
+| `mensaje_info`        | 🔵 Azul     | Información general y datos del proceso                    |
+| `mensaje_advertencia` | 🟡 Amarillo | Advertencias no fatales                                    |
+| `mensaje_error`       | 🔴 Rojo     | Errores críticos (escribe en `stderr` y termina el script) |
 
 ---
 
@@ -187,7 +187,7 @@ Copia un script local a hosts remotos por SCP, lo ejecuta por SSH y genera repor
   - `-t, --timeout SEG` — Timeout de conexión en segundos.
 - **Ejemplo**:
   ```bash
-  ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/holaMundo.sh -u supervisor -o /workspace/reportes/remoto
+  ./remoto.sh -f /workspace/hosts.txt -s /workspace/scripts/inventario.sh -u supervisor -o /workspace/reportes/remoto
   ```
 
 ---
@@ -235,10 +235,10 @@ Recopila información detallada del hardware y software del sistema, genera un r
 
 ## 📁 Archivos Auxiliares
 
-| Archivo | Descripción |
-|---|---|
-| `hosts.txt` | Lista de IPs de servidores remotos para `remoto.sh` (actualmente `172.20.0.5` y `172.20.0.7`). |
-| `scripts/holaMundo.sh` | Script de prueba para validar la ejecución remota con `remoto.sh`. |
+| Archivo                | Descripción                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------- |
+| `hosts.txt`            | Lista de IPs de servidores remotos para `remoto.sh` (actualmente `172.20.0.5` y `172.20.0.7`). |
+| `scripts/holaMundo.sh` | Script de prueba para validar la ejecución remota con `remoto.sh`.                             |
 
 ---
 
